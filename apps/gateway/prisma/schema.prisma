@@ -15,14 +15,27 @@ datasource db {
 model Player {
   id        String   @id @default(uuid())
   username  String   @unique
+  email     String   @unique
   balance   Float    @default(1000.0)
-  park      Park?
   createdAt DateTime @default(now())
+  characters  Character[]
+}
+
+model Character {
+  id       String   @id @default(uuid())
+  name     String
+  role     String
+  level    Int      @default(1)
+
+  playerId String
+  player Player     @relation(fields: [playerId], references: [id])
+
+  parks Park[]
 }
 
 model Park {
   id       String @id @default(uuid())
-  playerId String @unique
-  player   Player @relation(fields: [playerId], references: [id])
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id])
   gridData Json   // Matrice 50x30 de la grille
 }
