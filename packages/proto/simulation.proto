@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package simulation;
+
+service SimulationService {
+    rpc SendCommand (CommandRequest) returns (CommandResponse);
+    rpc StreamState (StateRequest) returns (stream WorldStateResponse);
+}
+
+message CommandRequest {
+  string action_type = 1; 
+  int32 x = 2;
+  int32 y = 3;
+  string payload = 4;     
+}
+
+message CommandResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message StateRequest {
+  string park_id = 1;
+}
+
+message WorldStateResponse {
+  uint64 tick_count = 1;
+  string dirty_chunks_json = 2;
+}
