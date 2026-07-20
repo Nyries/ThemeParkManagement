@@ -60,3 +60,35 @@ impl SimulationService for SimulationEngineService {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::GameWorld;
+    use std::sync::{Arc, Mutex};
+    use tonic::Request;
+
+    #[tokio::test]
+    async fn test_send_command_handler() {
+        // 1. Initialization of a world and a test service
+        let world = Arc::new(Mutex::new(GameWorld::new()));
+        let (state_sender, _) = tokio::sync::broadcast::channel(16);
+        let service = SimulationEngineService { world, state_sender };
+
+        // 2. Creating a mock gRPC request
+        let request = Request::new(CommandRequest {
+            action_type: "SET_TILE".into(),
+            x: 5,
+            y: 10,
+            payload: "{}".into(),
+        });
+
+        // 3. Calling the gRPC method
+        let response = service.send_command(request).await;
+
+        // 4. Assertions
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(inner.success);
+        assert_eq!(inner.message, "Action executed and registered by the engine");
+    }
+}
