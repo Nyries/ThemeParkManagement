@@ -1,0 +1,10 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] } # asynchron
+serde = { version = "1.0", features = ["derive"] } # JSON
+serde_json = "1.0"
+crossbeam = "0.8"
