@@ -7,16 +7,64 @@ service SimulationService {
     rpc StreamState (StateRequest) returns (stream WorldStateResponse);
 }
 
+message Coord {
+  int32 x = 1;
+  int32 y = 2;
+  int32 z = 3;
+}
+
+enum Layer { 
+  LAYER_UNSPECIFIED = 0;
+  LAYER_TERRAIN = 1;
+  LAYER_INFRASTRUCTURE = 2;
+  LAYER_BUILDINGS = 3;
+}
+
+message ApplyBrush {
+  Layer layer = 1;
+  string material_id = 2;
+  repeated Coord coordinates = 3;
+}
+
+enum Rotation {
+  ROTATION_DEG_0 = 0;
+  ROTATION_DEG_90 = 1;
+  ROTATION_DEG_180 = 2;
+  ROTATION_DEG_270 = 3;
+}
+
+message PlaceEntity {
+  string template_id = 1;
+  Coord origin = 2;
+  Rotation rotation = 3;
+}
+
+message RemoveEntity {
+  Coord position = 1;
+}
+
 message CommandRequest {
-  string action_type = 1; 
-  int32 x = 2;
-  int32 y = 3;
-  string payload = 4;     
+  string park_id = 1;
+  oneof command {
+    ApplyBrush apply_brush = 2;
+    PlaceEntity place_entity = 3;
+    RemoveEntity remove_entity = 4;
+  }  
+}
+
+enum ErrorCode {
+  ERROR_NONE = 0;
+  ERROR_OUT_OF_BOUNDS = 1;
+  ERROR_COLLISION = 2;
+  ERROR_CROSSING_NOT_ALLOWED = 3;
+  ERROR_INVALID_TEMPLATE = 4;
+  ERROR_INSUFFICIENT_FUNDS = 5;
 }
 
 message CommandResponse {
   bool success = 1;
   string message = 2;
+  ErrorCode error_code = 3;
 }
 
 message StateRequest {
