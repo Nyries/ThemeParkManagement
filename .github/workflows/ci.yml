@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  pull_requests:
+  pull_request:
     branches:
       - main
 
@@ -14,8 +14,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
@@ -33,29 +36,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      
       - name: Enable pnpm
         run: corepack enable
 
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH}}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+          node-version: '22'
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate shared proto types
+        run: pnpm --filter @app/shared-types run proto:gen
 
       - name: Run Gateway tests
         run: pnpm --filter gateway test
