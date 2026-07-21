@@ -1,5 +1,7 @@
 use engine::game::GameWorld;
 use engine::service::SimulationEngineService;
+use engine::simulation::command_request::Command;
+use engine::simulation::{ApplyBrush, Coord, Layer};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
@@ -40,11 +42,15 @@ async fn test_full_grpc_server_integration() {
 
     let mut client = SimulationServiceClient::new(channel);
 
+    let coord: Vec<Coord> = vec![Coord {x:0, y:0, z:0}];
+    let apply_brush  = ApplyBrush {
+        layer: Layer::Terrain.into(),
+        material_id: "grass".into(),
+        coordinates: coord
+    };
     let request = tonic::Request::new(CommandRequest {
-        action_type: "SET_TILE".into(),
-        x: 42,
-        y: 84,
-        payload: "{}".into(),
+            park_id: "1".into(),
+            command: Command::ApplyBrush(apply_brush).into(),
     });
 
     let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");

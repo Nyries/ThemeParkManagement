@@ -32,9 +32,14 @@ impl SimulationService for SimulationEngineService {
         };
         println!("Order received from Gateway: {action_type}");
 
+        let mut error_code = ErrorCode::ErrorNone;
+        if action_type == "Empty" {
+            let error_code = ErrorCode::ErrorEmpty;
+        }
+
         Ok(Response::new(CommandResponse { 
             success: true, 
-            error_code: ErrorCode::ErrorNone.into(),
+            error_code: error_code.into(),
             message: "Action executed and registered by the engine".into(),
         }))
     }
@@ -77,14 +82,13 @@ mod tests {
         let (state_sender, _) = tokio::sync::broadcast::channel(16);
         let service = SimulationEngineService { world, state_sender };
 
+        // 2. Creating a mock gRPC request
         let coord: Vec<Coord> = vec![Coord {x:0, y:0, z:0}];
-
         let apply_brush  = ApplyBrush {
             layer: Layer::Terrain.into(),
             material_id: "grass".into(),
             coordinates: coord
         };
-        // 2. Creating a mock gRPC request
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
             command: Command::ApplyBrush(apply_brush).into(),
