@@ -1,5 +1,4 @@
-use crate::game::GameWorld;
-use crate::map::TileType;
+use crate::{game::GameWorld, simulation::ErrorCode};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -7,8 +6,10 @@ use tonic::{Request, Response, Status};
 
 use crate::simulation::{
     simulation_service_server:: SimulationService, 
-    CommandRequest, CommandResponse, StateRequest, WorldStateResponse
+    CommandRequest, CommandResponse, StateRequest, WorldStateResponse,
+    command_request::Command
 };
+
 
 #[derive(Clone)]
 pub struct SimulationEngineService {
@@ -23,15 +24,17 @@ impl SimulationService for SimulationEngineService {
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
         let req = request.into_inner();
-        println!("Order received from Gateway : {} en ({}, {})", req.action_type, req.x, req.y);
-        
-        if req.action_type == "SET_TILE" {
-            let mut world = self.world.lock().unwrap();
-            world.park_map.set_tile(req.x, req.y, TileType::Path, 0);
-        }
+        let action_type = match &req.command {
+            Some(Command::ApplyBrush(_)) => "ApplyBrush",
+            Some(Command::PlaceEntity(_)) => "PlaceEntity",
+            Some(Command::RemoveEntity(_)) => "RemoveEntity",
+            None => "Empty",
+        };
+        println!("Order received from Gateway: {action_type}");
 
         Ok(Response::new(CommandResponse { 
             success: true, 
+            error_code: ErrorCode::ErrorNone.into(),
             message: "Action executed and registered by the engine".into(),
         }))
     }
@@ -63,7 +66,7 @@ impl SimulationService for SimulationEngineService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::GameWorld;
+    use crate::{game::GameWorld, simulation::{ApplyBrush, Coord, Layer}};
     use std::sync::{Arc, Mutex};
     use tonic::Request;
 
@@ -74,12 +77,17 @@ mod tests {
         let (state_sender, _) = tokio::sync::broadcast::channel(16);
         let service = SimulationEngineService { world, state_sender };
 
+        let coord: Vec<Coord> = vec![Coord {x:0, y:0, z:0}];
+
+        let apply_brush  = ApplyBrush {
+            layer: Layer::Terrain.into(),
+            material_id: "grass".into(),
+            coordinates: coord
+        };
         // 2. Creating a mock gRPC request
         let request = Request::new(CommandRequest {
-            action_type: "SET_TILE".into(),
-            x: 5,
-            y: 10,
-            payload: "{}".into(),
+            park_id: "1".into(),
+            command: Command::ApplyBrush(apply_brush).into(),
         });
 
         // 3. Calling the gRPC method
