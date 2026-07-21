@@ -271,6 +271,13 @@ importers:
 
   packages/shared-types:
     dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.2.3
+        version: 2.12.1
+      '@grpc/grpc-js':
+        specifier: ^1.14.4
+        version: 1.14.4
+    devDependencies:
       grpc-tools:
         specifier: ^1.13.1
         version: 1.13.1(supports-color@8.1.1)

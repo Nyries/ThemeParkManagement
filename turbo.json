@@ -1,11 +1,15 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
+    "proto:gen": {
+      "outputs": ["src/generated/**"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
     "dev": {
+      "dependsOn": ["@app/shared-types#proto:gen"],
       "cache": false,
       "persistent": true
     }
