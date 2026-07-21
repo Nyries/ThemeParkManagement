@@ -1,14 +1,20 @@
 {
-    "name": "@app/shared-types",
-    "dependencies": {        
-        "@bufbuild/protobuf": "^2.2.3",
-        "@grpc/grpc-js": "^1.14.4"
-    },
-    "devDependencies": {
-        "grpc-tools": "^1.13.1",
-        "ts-proto": "^2.12.0"
-    },
-    "scripts": {
-        "proto:gen": "grpc_tools_node_protoc --ts_proto_out=./src/generated --ts_proto_opt=outputServices=grpc-js,oneof=unions,esModuleInterop=true,env=node --proto_path=../proto ../proto/simulation.proto"
-    }
+  "name": "@app/shared-types",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.3",
+    "@grpc/grpc-js": "^1.14.4"
+  },
+  "devDependencies": {
+    "grpc-tools": "^1.13.1",
+    "ts-proto": "^2.12.0"
+  },
+  "scripts": {
+    "proto:gen": "grpc_tools_node_protoc --ts_proto_out=./src/generated --ts_proto_opt=outputServices=grpc-js,oneof=unions,esModuleInterop=true,env=node --proto_path=../proto ../proto/simulation.proto"
+  }
 }
