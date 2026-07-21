@@ -1,7 +1,8 @@
 use engine::game::GameWorld;
 use engine::service::SimulationEngineService;
 use engine::simulation::command_request::Command;
-use engine::simulation::{ApplyBrush, Coord, Layer};
+use engine::simulation::{ApplyBrush, Coord, Layer, PlaceEntity, RemoveEntity, Rotation};
+use tonic::Request;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
@@ -12,18 +13,14 @@ use engine::simulation::{
     simulation_service_server::SimulationServiceServer,
     CommandRequest, StateRequest};
 
-#[tokio::test]
-async fn test_full_grpc_server_integration() {
-    let addr: SocketAddr = "[::1]:50052"
-        .parse()
-        .unwrap();
-
+async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channel> {
+    let listener = TcpListener::bind("[::1]:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
+    
     let world = Arc::new(Mutex::new(GameWorld::new()));
     let (state_sender, _) = tokio::sync::broadcast::channel(16);
     let service = SimulationEngineService { world, state_sender };
-
-    let listener = TcpListener::bind(addr).await.unwrap();
-    let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
 
     tokio::spawn(async move {
         Server::builder()
@@ -35,37 +32,96 @@ async fn test_full_grpc_server_integration() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let channel = tonic::transport::Channel::from_static("http://[::1]:50052")
+    let channel = tonic::transport::Channel::from_shared(format!("http://{addr}"))
+        .unwrap()
         .connect()
         .await
-        .expect("Impossible de connect to gRPC test server");
+        .expect("Impossible to connect to gRPC test server");
 
-    let mut client = SimulationServiceClient::new(channel);
+    SimulationServiceClient::new(channel)
+}
 
-    let coord: Vec<Coord> = vec![Coord {x:0, y:0, z:0}];
+#[tokio::test]
+async fn test_send_command_with_apply_brush_succeeds() {
+    let mut client = spawn_test_server().await;
+
     let apply_brush  = ApplyBrush {
         layer: Layer::Terrain.into(),
         material_id: "grass".into(),
-        coordinates: coord
+        coordinates: vec![Coord {x:0, y:0, z:0}]
     };
-    let request = tonic::Request::new(CommandRequest {
-            park_id: "1".into(),
-            command: Command::ApplyBrush(apply_brush).into(),
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::ApplyBrush(apply_brush).into(),
     });
-
+    
     let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
-    let inner = response.into_inner();
-    assert!(inner.success);
+
+    assert!(response.into_inner().success);
+}
+
+#[tokio::test]
+async fn test_send_command_with_place_entity_succeeds() {
+    let mut client = spawn_test_server().await;
+
+    let place_entity  = PlaceEntity {
+        template_id: "restaurant-1".into(),
+        origin: Some(Coord {x:0, y:0, z:0}),
+        rotation: Rotation::Deg180.into()
+    };
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceEntity(place_entity).into(),
+    });
+    
+    let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
+
+    assert!(response.into_inner().success);
+}
+
+#[tokio::test]
+async fn test_send_command_with_remove_entity_succeeds() {
+    let mut client = spawn_test_server().await;
+
+    let remove_entity  = RemoveEntity {
+        position: Some(Coord { x: 0, y: 0, z: 0 })
+    };
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::RemoveEntity(remove_entity).into(),
+    });
+    
+    let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
+
+    assert!(response.into_inner().success);
+}
+
+#[tokio::test]
+async fn test_send_command_without_command_fails() {
+    let mut client = spawn_test_server().await;
+
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: None
+    });
+    
+    let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
+
+    assert!(!response.into_inner().success);
+}
+
+#[tokio::test]
+async fn stream_state_connects_successfully() {
+    let mut client = spawn_test_server().await;
 
     let stream_request = tonic::Request::new(StateRequest {
-        park_id: "central-parc-1".into(),
+        park_id: "park-1".into()
     });
 
-    let mut stream = client
-        .stream_state(stream_request)
-        .await
-        .expect("Failed to initialize stream")
-        .into_inner();
+    let stream = client.stream_state(stream_request)
+    .await
+    .expect("Failed to initialize stream")
+    .into_inner();
 
-    assert!(true);
+    let _ = stream;
 }
