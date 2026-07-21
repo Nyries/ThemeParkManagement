@@ -34,7 +34,19 @@ impl SimulationService for SimulationEngineService {
 
         let mut error_code = ErrorCode::ErrorNone;
         if action_type == "Empty" {
-            let error_code = ErrorCode::ErrorEmpty;
+            error_code = ErrorCode::ErrorEmpty;
+            return Ok(Response::new(CommandResponse {
+                success: false,
+                error_code: error_code.into(),
+                message: "No command given".into()
+            }));
+        } else if req.park_id == "" {
+            error_code = ErrorCode::ErrorEmpty;
+            return Ok(Response::new(CommandResponse {
+                success: false,
+                error_code: error_code.into(),
+                message: "park_id is empty".into()
+            }));
         }
 
         Ok(Response::new(CommandResponse { 
@@ -71,23 +83,74 @@ impl SimulationService for SimulationEngineService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::GameWorld, simulation::{ApplyBrush, Coord, Layer}};
+    use crate::{game::GameWorld, simulation::{ApplyBrush, Coord, Layer, PlaceEntity, RemoveEntity, Rotation}};
     use std::sync::{Arc, Mutex};
     use tonic::Request;
 
-    #[tokio::test]
-    async fn test_send_command_handler() {
-        // 1. Initialization of a world and a test service
+    fn build_service() -> SimulationEngineService {
         let world = Arc::new(Mutex::new(GameWorld::new()));
         let (state_sender, _) = tokio::sync::broadcast::channel(16);
-        let service = SimulationEngineService { world, state_sender };
+        SimulationEngineService { world, state_sender }
+    }
+
+    #[tokio::test]
+    async fn test_send_command_with_place_entity_succeeds() {
+        // 1. Initialization of a world and a test service
+        let service = build_service();
 
         // 2. Creating a mock gRPC request
-        let coord: Vec<Coord> = vec![Coord {x:0, y:0, z:0}];
+        let place_entity  = PlaceEntity {
+            template_id: "restaurant-1".into(),
+            origin: Some(Coord {x:0, y:0, z:0}),
+            rotation: Rotation::Deg180.into()
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: Command::PlaceEntity(place_entity).into(),
+        });
+
+        // 3. Calling the gRPC method
+        let response = service.send_command(request).await;
+
+        // 4. Assertions
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(inner.success);
+        assert_eq!(inner.message, "Action executed and registered by the engine");
+    }
+    #[tokio::test]
+    async fn test_send_command_with_remove_entity_succeeds() {
+        // 1. Initialization of a world and a test service
+        let service = build_service();
+
+        // 2. Creating a mock gRPC request
+        let remove_entity  = RemoveEntity {
+            position: Some(Coord { x: 0, y: 0, z: 0 })
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: Command::RemoveEntity(remove_entity).into(),
+        });
+
+        // 3. Calling the gRPC method
+        let response = service.send_command(request).await;
+
+        // 4. Assertions
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(inner.success);
+        assert_eq!(inner.message, "Action executed and registered by the engine");
+    }
+    #[tokio::test]
+    async fn test_send_command_with_apply_brush_succeeds() {
+        // 1. Initialization of a world and a test service
+        let service = build_service();
+
+        // 2. Creating a mock gRPC request
         let apply_brush  = ApplyBrush {
             layer: Layer::Terrain.into(),
             material_id: "grass".into(),
-            coordinates: coord
+            coordinates: vec![Coord {x:0, y:0, z:0}]
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
@@ -102,5 +165,43 @@ mod tests {
         let inner = response.unwrap().into_inner();
         assert!(inner.success);
         assert_eq!(inner.message, "Action executed and registered by the engine");
+    }
+
+    #[tokio::test]
+    async fn test_send_command_without_command_fails() {
+        let service = build_service();
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: None
+        });
+
+        let response = service.send_command(request).await;
+
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(!inner.success);
+        assert_eq!(inner.message, "No command given");
+    }
+
+    #[tokio::test]
+    async fn test_send_command_with_empty_park_id_fails() {
+        let service = build_service();
+
+        let apply_brush  = ApplyBrush {
+            layer: Layer::Terrain.into(),
+            material_id: "grass".into(),
+            coordinates: vec![Coord {x:0, y:0, z:0}]
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "".into(),
+            command: Command::ApplyBrush(apply_brush).into()
+        });
+
+        let response = service.send_command(request).await;
+
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(!inner.success);
+        assert_eq!(inner.message, "park_id is empty");
     }
 }
