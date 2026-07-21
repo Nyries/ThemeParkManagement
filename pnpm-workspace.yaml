@@ -4,5 +4,6 @@ packages:
 allowBuilds:
   '@prisma/engines': true
   esbuild: true
+  grpc-tools: true
   prisma: true
   protobufjs: true
