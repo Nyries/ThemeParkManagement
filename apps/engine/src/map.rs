@@ -1,5 +1,24 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
+
+use crate::simulation::{ErrorCode, Layer, Rotation};
+
+fn crossing_flags_for(template_id: &str) -> (bool, bool) {
+    // Allows above or allows below
+    match template_id {
+        "bridge_support" => (true, true),
+        _ => (false, false),
+    } // Depends on template_id catalog
+}
+
+fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i32)> {
+    footprint.iter().map(|&(dx, dy)| match rotation {
+        Rotation::Deg0 => (dx, dy),
+        Rotation::Deg90 => (-dx, dy),
+        Rotation::Deg180 => (-dx, -dy),
+        Rotation::Deg270 => (dx, -dy),
+    }).collect()
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Parcel {
@@ -46,7 +65,8 @@ pub enum InfrastructureKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct BuildingId {
-    pub building_id: String
+    pub building_id: String,
+    pub template_id: String
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -57,18 +77,23 @@ pub struct ParkMap {
     pub infrastructure: HashMap<(i32, i32, i32), InfrastructureKind>,
     pub buildings: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
+    pub unlocked_levels: HashSet<i32>,
 }
 
 impl ParkMap {
 
     pub fn new(map_id: String, bounds: Bounds3d) -> Self {
+        let mut unlocked_levels = HashSet::new();
+        unlocked_levels.insert(0);
+
         Self {
             map_id,
             bounds,
             terrain: HashMap::new(),
             infrastructure: HashMap::new(),
             buildings: HashMap::new(),
-            parcels: Vec::new()
+            parcels: Vec::new(),
+            unlocked_levels
         }
     }
 
@@ -104,69 +129,47 @@ impl ParkMap {
         self.parcel_at(x, y).is_some_and(|p| p.unlocked)
     }
 
+    fn is_within_bounds(&self, x: i32, y: i32, z: i32) -> bool {
+        x>= self.bounds.min_x && x <= self.bounds.max_x
+        && y >= self.bounds.min_y && y <= self.bounds.max_y
+        && z >= self.bounds.min_z && z <= self.bounds.max_z 
+    }
+
+    fn is_level_available(&self, z: i32) -> bool {
+        self.unlocked_levels.contains(&z)
+    }
+
+    pub fn can_apply_brush(&self, x: i32, y: i32, z: i32, layer: Layer) -> Result<(), ErrorCode> {
+        if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
+            return Err(ErrorCode::ErrorOutOfBounds);
+        }
+        if !self.is_unlocked(x, y) {
+            return Err(ErrorCode::ErrorOutOfBounds);
+        }
+        if self.get_buildings(x, y, z).is_some() {
+            return Err(ErrorCode::ErrorCollision);
+        }
+        if layer == Layer::Infrastructure && z==0 {
+            if let Some(material) = self.get_terrain(x, y, 0) {
+                if material.material_id == "water" {
+                    //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
+                    return Err(ErrorCode::ErrorCrossingNotAllowed);
+                }
+            }
+        }
+        if layer == Layer::Infrastructure && (z == 1 || z== -1) {
+            if let Some(building) = self.get_buildings(x, y, 0) {
+                let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
+                let allowed = if z == 1 { allows_above } else { allows_below };
+                if !allowed {
+                    return Err(ErrorCode::ErrorCrossingNotAllowed);
+                }
+            }
+        }
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn build_test_map() -> ParkMap {
-        let map_id = "map-1".to_string();
-        let bounds_3d= Bounds3d::new(0,0,0,0,0,0);
-        ParkMap::new(map_id, bounds_3d)
-    }
-
-    #[test]
-    fn test_set_and_get_terrain() {
-        let mut park_map = build_test_map();
-
-        assert!(park_map.get_terrain(0, 0, 0).is_none());
-
-        park_map.set_terrain(0, 0, 0, Material { material_id: "grass".into() });
-
-        let material = park_map.get_terrain(0,0,0).expect("The terrain should exist");
-        assert_eq!(material.material_id, "grass");
-    }
-
-    #[test]
-    fn test_set_and_get_infrastructure() {
-        let mut park_map = build_test_map();
-
-        assert!(park_map.get_infrastructure(0, 0, 0).is_none());
-
-        park_map.set_infrastructure(0, 0, 0, InfrastructureKind::Path);
-
-        let infrastructure_kind = park_map.get_infrastructure(0,0,0).expect("The infrastructure should exist");
-        assert_eq!(infrastructure_kind, &InfrastructureKind::Path);
-    }
-
-    #[test]
-    fn test_set_and_get_buildings() {
-        let mut park_map = build_test_map();
-
-        assert!(park_map.get_buildings(0, 0, 0).is_none());
-
-        park_map.set_buildings(0, 0, 0, BuildingId { building_id: "coaster-1".into()});
-
-        let building_id = park_map.get_buildings(0,0,0).expect("The terrain should exist");
-        assert_eq!(building_id.building_id, "coaster-1");
-    }
-
-    #[test]
-    fn test_parcel_at_and_is_unlocked() {
-        let mut park_map = build_test_map();
-
-        assert!(park_map.parcel_at(0, 0).is_none());
-        assert!(!park_map.is_unlocked(0, 0));
-
-        park_map.parcels.push(Parcel {
-            id: "start".into(),
-            cells: vec![(0, 0)],
-            unlocked: true,
-            price: 0,
-        });
-
-        assert!(park_map.is_unlocked(0, 0));
-        assert!(!park_map.is_unlocked(5, 5)); // hors de toute parcelle
-    }
-}
+mod tests;
