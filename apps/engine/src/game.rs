@@ -1,4 +1,4 @@
-use crate::map::ParkMap;
+use crate::map::{Bounds3d, ParkMap};
 
 pub struct GameWorld {
     pub park_map: ParkMap,
@@ -8,7 +8,10 @@ pub struct GameWorld {
 impl GameWorld {
     pub fn new() -> Self {
         Self { 
-            park_map:ParkMap::new(), 
+            park_map:ParkMap::new(
+                "default".into(), //To replace with a parkmap preloaded
+                Bounds3d::new(0, 50, 0, 30, -1, 1)
+            ), 
             tick_count: 0, 
         }
     }
@@ -30,8 +33,9 @@ mod tests {
     fn test_game_world_initialization() {
         let world = GameWorld::new();
         assert_eq!(world.tick_count, 0);
-        assert!(world.park_map.tiles.is_empty());
+        assert!(world.park_map.terrain.is_empty());
     }
+
 
     #[test]
     fn test_game_world_single_tick() {
