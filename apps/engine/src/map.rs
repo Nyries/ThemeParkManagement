@@ -14,9 +14,9 @@ fn crossing_flags_for(template_id: &str) -> (bool, bool) {
 fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i32)> {
     footprint.iter().map(|&(dx, dy)| match rotation {
         Rotation::Deg0 => (dx, dy),
-        Rotation::Deg90 => (-dx, dy),
+        Rotation::Deg90 => (-dy, dx),
         Rotation::Deg180 => (-dx, -dy),
-        Rotation::Deg270 => (dx, -dy),
+        Rotation::Deg270 => (dy, -dx),
     }).collect()
 }
 
@@ -166,6 +166,43 @@ impl ParkMap {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub fn can_place_building(&self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation, template_id: &str) -> Result<(), ErrorCode> {
+        let (ox, oy, oz) = origin;
+        let rotated = rotate_footprint(footprint, rotation);
+
+        for (dx, dy) in rotated {
+            let (x, y, z) = (ox + dx, oy + dy, oz);
+
+            if !self.is_within_bounds(x, y, z) || !self.is_level_available(z){
+                return Err(ErrorCode::ErrorOutOfBounds);
+            }
+            if !self.is_unlocked(x, y) {
+                return Err(ErrorCode::ErrorOutOfBounds);
+            }
+            if self.get_buildings(x, y, z).is_some() {
+                return Err(ErrorCode::ErrorCollision);
+            }
+            if let Some(material) = self.get_terrain(x, y, z) {
+                if material.material_id == "water" {
+                    //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
+                    return Err(ErrorCode::ErrorCollision);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn can_remove(&self, x: i32, y: i32, z: i32) -> Result<(), ErrorCode> {
+        if !self.is_within_bounds(x, y, z) {
+            return Err(ErrorCode::ErrorOutOfBounds);
+        }
+        if self.get_buildings(x, y, z).is_none() && self.get_infrastructure(x, y, z).is_none() && self.get_terrain(x, y, z).is_none() {
+            return Err(ErrorCode::ErrorCollision);
+        }
+
         Ok(())
     }
 
