@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 
-use crate::simulation::{ErrorCode, Layer, Rotation};
+use crate::simulation::{ErrorCode, Rotation};
 
 fn crossing_flags_for(template_id: &str) -> (bool, bool) {
     // Allows above or allows below
@@ -139,7 +139,7 @@ impl ParkMap {
         self.unlocked_levels.contains(&z)
     }
 
-    pub fn can_apply_brush(&self, x: i32, y: i32, z: i32, layer: Layer) -> Result<(), ErrorCode> {
+    pub fn can_apply_terrain(&self, x: i32, y: i32, z: i32) -> Result<(), ErrorCode> {
         if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
             return Err(ErrorCode::ErrorOutOfBounds);
         }
@@ -149,22 +149,45 @@ impl ParkMap {
         if self.get_buildings(x, y, z).is_some() {
             return Err(ErrorCode::ErrorCollision);
         }
-        if layer == Layer::Infrastructure && z==0 {
-            if let Some(material) = self.get_terrain(x, y, 0) {
-                if material.material_id == "water" {
-                    //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
-                    return Err(ErrorCode::ErrorCrossingNotAllowed);
+        Ok(())
+    }
+
+    pub fn can_place_infrastructure(&self, kind: InfrastructureKind, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
+        for &(x, y,z) in coordinates {
+            if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
+                return Err(ErrorCode::ErrorOutOfBounds);
+            }
+            if !self.is_unlocked(x, y) {
+                return Err(ErrorCode::ErrorOutOfBounds);
+            }
+            if self.get_buildings(x, y, z).is_some() {
+                return Err(ErrorCode::ErrorCollision);
+            }
+            if z==0 {
+                if let Some(material) = self.get_terrain(x, y, z) {
+                    if material.material_id == "water" {
+                        // Add other material_id maybe with an inside field
+                        return Err(ErrorCode::ErrorCrossingNotAllowed);
+                    }
                 }
             }
-        }
-        if layer == Layer::Infrastructure && (z == 1 || z== -1) {
-            if let Some(building) = self.get_buildings(x, y, 0) {
-                let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
-                let allowed = if z == 1 { allows_above } else { allows_below };
-                if !allowed {
-                    return Err(ErrorCode::ErrorCrossingNotAllowed);
+            if z == 1 || z == -1 {
+                if let Some(building) = self.get_buildings(x, y, 0) {
+                    let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
+                    let allowed = if z == 1 { allows_above } else { allows_below };
+                    if !allowed {
+                        return Err(ErrorCode::ErrorCrossingNotAllowed);
+                    }
                 }
             }
+            if !matches!(kind, InfrastructureKind::Path) {
+                if !self.is_level_available(to_z) {
+                    return Err(ErrorCode::ErrorOutOfBounds);
+                }
+                if (to_z - z).abs() != 1 {
+                    return Err(ErrorCode::ErrorCrossingNotAllowed);
+                }
+             }
         }
         Ok(())
     }

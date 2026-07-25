@@ -116,11 +116,11 @@ mod parcels_and_levels {
     }
 }
 
-mod can_apply_brush {
+mod can_apply_terrain {
     use super::*;
 
     #[test]
-    fn test_can_apply_brush_succeeds_on_unlocked_cell() {
+    fn test_can_apply_terrain_succeeds_on_unlocked_cell() {
         let mut park_map = build_test_map();
         park_map.parcels.push(Parcel {
             id: "start".into(),
@@ -129,31 +129,31 @@ mod can_apply_brush {
             price: 0,
         });
 
-        let result = park_map.can_apply_brush(0, 0, 0, Layer::Terrain);
+        let result = park_map.can_apply_terrain(0, 0, 0);
 
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_can_apply_brush_fails_out_of_bounds() {
+    fn test_can_apply_terrain_fails_out_of_bounds() {
         let park_map = build_test_map();
 
-        let result = park_map.can_apply_brush(5, 5, 0, Layer::Terrain);
+        let result = park_map.can_apply_terrain(5, 5, 0);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
 
     #[test]
-    fn test_can_apply_brush_fails_on_locked_parcel() {
+    fn test_can_apply_terrain_fails_on_locked_parcel() {
         let park_map = build_test_map();
 
-        let result = park_map.can_apply_brush(0, 0, 0, Layer::Terrain);
+        let result = park_map.can_apply_terrain(0, 0, 0);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
 
     #[test]
-    fn test_can_apply_brush_fails_on_building_collision() {
+    fn test_can_apply_terrain_fails_on_building_collision() {
         let mut park_map = build_test_map();
         park_map.parcels.push(Parcel {
             id: "start".into(),
@@ -163,30 +163,18 @@ mod can_apply_brush {
         });
         park_map.set_buildings(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
 
-        let result = park_map.can_apply_brush(0, 0, 0, Layer::Infrastructure);
+        let result = park_map.can_apply_terrain(0, 0, 0);
 
         assert_eq!(result, Err(ErrorCode::ErrorCollision));
     }
 
-    #[test]
-    fn test_can_apply_brush_rejects_path_on_water_at_ground_level() {
-        let mut park_map = build_test_map();
-        park_map.parcels.push(Parcel {
-            id: "start".into(),
-            cells: vec![(0, 0)],
-            unlocked: true,
-            price: 0,
-        });
-        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+}
 
-        let result = park_map.can_apply_brush(0, 0, 0, Layer::Infrastructure);
+mod can_place_infrastructure {
+    use super::*;
 
-        assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
-    }
-
-    #[test]
-    fn test_can_apply_brush_allows_bridge_over_water() {
-        let mut park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, 0, 1));
+    fn build_infra_test_map() -> ParkMap {
+        let mut park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2));
         park_map.unlocked_levels.insert(1);
         park_map.parcels.push(Parcel {
             id: "start".into(),
@@ -194,15 +182,117 @@ mod can_apply_brush {
             unlocked: true,
             price: 0,
         });
-        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+        park_map
+    }
 
-        let result = park_map.can_apply_brush(0, 0, 1, Layer::Infrastructure);
+    #[test]
+    fn test_can_place_infrastructure_succeeds_for_path() {
+        let park_map = build_infra_test_map();
+
+        // to_z ignoré pour Path
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
 
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_out_of_bounds() {
+        let park_map = build_infra_test_map();
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(5, 5, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_on_locked_parcel() {
+        let park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2)); // pas de parcelle
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_on_building_collision() {
+        let mut park_map = build_infra_test_map();
+        park_map.set_buildings(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorCollision));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_rejects_path_on_water_at_ground_level() {
+        let mut park_map = build_infra_test_map();
+        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_allows_path_bridge_over_water() {
+        let mut park_map = build_infra_test_map();
+        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+
+        // Pont = Path à z=+1 au-dessus de l'eau à z=0
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_crossing_not_allowed_above_building() {
+        let mut park_map = build_infra_test_map();
+        park_map.set_buildings(0, 0, 0, BuildingId { building_id: "shop-1".into(), template_id: "shop".into() });
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_allows_passerelle_above_building_with_flag() {
+        let mut park_map = build_infra_test_map();
+        park_map.set_buildings(0, 0, 0, BuildingId { building_id: "support-1".into(), template_id: "bridge_support".into() });
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_succeeds_for_ramp_to_adjacent_level() {
+        let park_map = build_infra_test_map();
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_for_ramp_to_non_adjacent_level() {
+        let mut park_map = build_infra_test_map();
+        park_map.unlocked_levels.insert(2);
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
+    }
+
+    #[test]
+    fn test_can_place_infrastructure_fails_for_ramp_to_locked_level() {
+        let park_map = build_infra_test_map();
+        // to_z = -1 est dans les bornes mais pas dans unlocked_levels
+
+        let result = park_map.can_place_infrastructure(InfrastructureKind::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
+    }
 }
-
-
 
 mod can_place_building {
     use super::*;
