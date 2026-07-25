@@ -24,27 +24,27 @@ import {
 export const protobufPackage = "simulation";
 
 export enum InfrastructureKind {
-  INFRASTRUCTURE_UNSPECIFIED = 0,
-  INFRASTRUCTURE_PATH = 1,
-  INFRASTRUCTURE_RAMP = 2,
-  INFRASTRUCTURE_STAIRS = 3,
+  INFRASTRUCTURE_KIND_UNSPECIFIED = 0,
+  INFRASTRUCTURE_KIND_PATH = 1,
+  INFRASTRUCTURE_KIND_RAMP = 2,
+  INFRASTRUCTURE_KIND_STAIRS = 3,
   UNRECOGNIZED = -1,
 }
 
 export function infrastructureKindFromJSON(object: any): InfrastructureKind {
   switch (object) {
     case 0:
-    case "INFRASTRUCTURE_UNSPECIFIED":
-      return InfrastructureKind.INFRASTRUCTURE_UNSPECIFIED;
+    case "INFRASTRUCTURE_KIND_UNSPECIFIED":
+      return InfrastructureKind.INFRASTRUCTURE_KIND_UNSPECIFIED;
     case 1:
-    case "INFRASTRUCTURE_PATH":
-      return InfrastructureKind.INFRASTRUCTURE_PATH;
+    case "INFRASTRUCTURE_KIND_PATH":
+      return InfrastructureKind.INFRASTRUCTURE_KIND_PATH;
     case 2:
-    case "INFRASTRUCTURE_RAMP":
-      return InfrastructureKind.INFRASTRUCTURE_RAMP;
+    case "INFRASTRUCTURE_KIND_RAMP":
+      return InfrastructureKind.INFRASTRUCTURE_KIND_RAMP;
     case 3:
-    case "INFRASTRUCTURE_STAIRS":
-      return InfrastructureKind.INFRASTRUCTURE_STAIRS;
+    case "INFRASTRUCTURE_KIND_STAIRS":
+      return InfrastructureKind.INFRASTRUCTURE_KIND_STAIRS;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -54,14 +54,14 @@ export function infrastructureKindFromJSON(object: any): InfrastructureKind {
 
 export function infrastructureKindToJSON(object: InfrastructureKind): string {
   switch (object) {
-    case InfrastructureKind.INFRASTRUCTURE_UNSPECIFIED:
-      return "INFRASTRUCTURE_UNSPECIFIED";
-    case InfrastructureKind.INFRASTRUCTURE_PATH:
-      return "INFRASTRUCTURE_PATH";
-    case InfrastructureKind.INFRASTRUCTURE_RAMP:
-      return "INFRASTRUCTURE_RAMP";
-    case InfrastructureKind.INFRASTRUCTURE_STAIRS:
-      return "INFRASTRUCTURE_STAIRS";
+    case InfrastructureKind.INFRASTRUCTURE_KIND_UNSPECIFIED:
+      return "INFRASTRUCTURE_KIND_UNSPECIFIED";
+    case InfrastructureKind.INFRASTRUCTURE_KIND_PATH:
+      return "INFRASTRUCTURE_KIND_PATH";
+    case InfrastructureKind.INFRASTRUCTURE_KIND_RAMP:
+      return "INFRASTRUCTURE_KIND_RAMP";
+    case InfrastructureKind.INFRASTRUCTURE_KIND_STAIRS:
+      return "INFRASTRUCTURE_KIND_STAIRS";
     case InfrastructureKind.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
