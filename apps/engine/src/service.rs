@@ -26,8 +26,8 @@ impl SimulationService for SimulationEngineService {
         let req = request.into_inner();
         let action_type = match &req.command {
             Some(Command::ApplyBrush(_)) => "ApplyBrush",
-            Some(Command::PlaceEntity(_)) => "PlaceEntity",
-            Some(Command::RemoveEntity(_)) => "RemoveEntity",
+            Some(Command::PlaceBuilding(_)) => "PlaceBuilding",
+            Some(Command::RemoveBuilding(_)) => "RemoveBuilding",
             None => "Empty",
         };
         println!("Order received from Gateway: {action_type}");
@@ -83,7 +83,7 @@ impl SimulationService for SimulationEngineService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::GameWorld, simulation::{ApplyBrush, Coord, Layer, PlaceEntity, RemoveEntity, Rotation}};
+    use crate::{game::GameWorld, simulation::{ApplyBrush, Coord, Layer, PlaceBuilding, RemoveBuilding, Rotation}};
     use std::sync::{Arc, Mutex};
     use tonic::Request;
 
@@ -94,19 +94,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_command_with_place_entity_succeeds() {
+    async fn test_send_command_with_place_building_succeeds() {
         // 1. Initialization of a world and a test service
         let service = build_service();
 
         // 2. Creating a mock gRPC request
-        let place_entity  = PlaceEntity {
+        let place_building  = PlaceBuilding {
             template_id: "restaurant-1".into(),
             origin: Some(Coord {x:0, y:0, z:0}),
             rotation: Rotation::Deg180.into()
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
-            command: Command::PlaceEntity(place_entity).into(),
+            command: Command::PlaceBuilding(place_building).into(),
         });
 
         // 3. Calling the gRPC method
@@ -119,17 +119,17 @@ mod tests {
         assert_eq!(inner.message, "Action executed and registered by the engine");
     }
     #[tokio::test]
-    async fn test_send_command_with_remove_entity_succeeds() {
+    async fn test_send_command_with_remove_building_succeeds() {
         // 1. Initialization of a world and a test service
         let service = build_service();
 
         // 2. Creating a mock gRPC request
-        let remove_entity  = RemoveEntity {
+        let remove_building  = RemoveBuilding {
             position: Some(Coord { x: 0, y: 0, z: 0 })
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
-            command: Command::RemoveEntity(remove_entity).into(),
+            command: Command::RemoveBuilding(remove_building).into(),
         });
 
         // 3. Calling the gRPC method
