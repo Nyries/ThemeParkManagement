@@ -13,16 +13,21 @@ message Coord {
   int32 z = 3;
 }
 
-enum Layer { 
-  LAYER_UNSPECIFIED = 0;
-  LAYER_TERRAIN = 1;
-  LAYER_INFRASTRUCTURE = 2;
-  LAYER_BUILDINGS = 3;
+message ApplyTerrain {
+  string material_id = 2;
+  repeated Coord coordinates = 3;
 }
 
-message ApplyBrush {
-  Layer layer = 1;
-  string material_id = 2;
+enum InfrastructureKind {
+  INFRASTRUCTURE_UNSPECIFIED = 0;
+  INFRASTRUCTURE_PATH = 1;
+  INFRASTRUCTURE_RAMP = 2;
+  INFRASTRUCTURE_STAIRS = 3;
+}
+
+message PlaceInfrastructure {
+  InfrastructureKind kind = 1;
+  int32 to_z = 2; // Ignored when kind == INFRASTRUCTURE_PATH
   repeated Coord coordinates = 3;
 }
 
@@ -46,9 +51,10 @@ message RemoveBuilding {
 message CommandRequest {
   string park_id = 1;
   oneof command {
-    ApplyBrush apply_brush = 2;
-    PlaceBuilding place_building = 3;
-    RemoveBuilding remove_building = 4;
+    ApplyTerrain apply_terrain = 2;
+    PlaceInfrastructure place_infrastructure = 3;
+    PlaceBuilding place_building = 4;
+    RemoveBuilding remove_building = 5;
   }  
 }
 

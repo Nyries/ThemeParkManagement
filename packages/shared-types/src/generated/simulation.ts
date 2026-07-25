@@ -23,46 +23,46 @@ import {
 
 export const protobufPackage = "simulation";
 
-export enum Layer {
-  LAYER_UNSPECIFIED = 0,
-  LAYER_TERRAIN = 1,
-  LAYER_INFRASTRUCTURE = 2,
-  LAYER_BUILDINGS = 3,
+export enum InfrastructureKind {
+  INFRASTRUCTURE_UNSPECIFIED = 0,
+  INFRASTRUCTURE_PATH = 1,
+  INFRASTRUCTURE_RAMP = 2,
+  INFRASTRUCTURE_STAIRS = 3,
   UNRECOGNIZED = -1,
 }
 
-export function layerFromJSON(object: any): Layer {
+export function infrastructureKindFromJSON(object: any): InfrastructureKind {
   switch (object) {
     case 0:
-    case "LAYER_UNSPECIFIED":
-      return Layer.LAYER_UNSPECIFIED;
+    case "INFRASTRUCTURE_UNSPECIFIED":
+      return InfrastructureKind.INFRASTRUCTURE_UNSPECIFIED;
     case 1:
-    case "LAYER_TERRAIN":
-      return Layer.LAYER_TERRAIN;
+    case "INFRASTRUCTURE_PATH":
+      return InfrastructureKind.INFRASTRUCTURE_PATH;
     case 2:
-    case "LAYER_INFRASTRUCTURE":
-      return Layer.LAYER_INFRASTRUCTURE;
+    case "INFRASTRUCTURE_RAMP":
+      return InfrastructureKind.INFRASTRUCTURE_RAMP;
     case 3:
-    case "LAYER_BUILDINGS":
-      return Layer.LAYER_BUILDINGS;
+    case "INFRASTRUCTURE_STAIRS":
+      return InfrastructureKind.INFRASTRUCTURE_STAIRS;
     case -1:
     case "UNRECOGNIZED":
     default:
-      return Layer.UNRECOGNIZED;
+      return InfrastructureKind.UNRECOGNIZED;
   }
 }
 
-export function layerToJSON(object: Layer): string {
+export function infrastructureKindToJSON(object: InfrastructureKind): string {
   switch (object) {
-    case Layer.LAYER_UNSPECIFIED:
-      return "LAYER_UNSPECIFIED";
-    case Layer.LAYER_TERRAIN:
-      return "LAYER_TERRAIN";
-    case Layer.LAYER_INFRASTRUCTURE:
-      return "LAYER_INFRASTRUCTURE";
-    case Layer.LAYER_BUILDINGS:
-      return "LAYER_BUILDINGS";
-    case Layer.UNRECOGNIZED:
+    case InfrastructureKind.INFRASTRUCTURE_UNSPECIFIED:
+      return "INFRASTRUCTURE_UNSPECIFIED";
+    case InfrastructureKind.INFRASTRUCTURE_PATH:
+      return "INFRASTRUCTURE_PATH";
+    case InfrastructureKind.INFRASTRUCTURE_RAMP:
+      return "INFRASTRUCTURE_RAMP";
+    case InfrastructureKind.INFRASTRUCTURE_STAIRS:
+      return "INFRASTRUCTURE_STAIRS";
+    case InfrastructureKind.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
   }
@@ -182,9 +182,15 @@ export interface Coord {
   z: number;
 }
 
-export interface ApplyBrush {
-  layer: Layer;
+export interface ApplyTerrain {
   materialId: string;
+  coordinates: Coord[];
+}
+
+export interface PlaceInfrastructure {
+  kind: InfrastructureKind;
+  /** Ignored when kind == INFRASTRUCTURE_PATH */
+  toZ: number;
   coordinates: Coord[];
 }
 
@@ -201,7 +207,8 @@ export interface RemoveBuilding {
 export interface CommandRequest {
   parkId: string;
   command:
-    | { $case: "applyBrush"; applyBrush: ApplyBrush }
+    | { $case: "applyTerrain"; applyTerrain: ApplyTerrain }
+    | { $case: "placeInfrastructure"; placeInfrastructure: PlaceInfrastructure }
     | { $case: "placeBuilding"; placeBuilding: PlaceBuilding }
     | { $case: "removeBuilding"; removeBuilding: RemoveBuilding }
     | undefined;
@@ -314,15 +321,12 @@ export const Coord: MessageFns<Coord> = {
   },
 };
 
-function createBaseApplyBrush(): ApplyBrush {
-  return { layer: 0, materialId: "", coordinates: [] };
+function createBaseApplyTerrain(): ApplyTerrain {
+  return { materialId: "", coordinates: [] };
 }
 
-export const ApplyBrush: MessageFns<ApplyBrush> = {
-  encode(message: ApplyBrush, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.layer !== 0) {
-      writer.uint32(8).int32(message.layer);
-    }
+export const ApplyTerrain: MessageFns<ApplyTerrain> = {
+  encode(message: ApplyTerrain, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.materialId !== "") {
       writer.uint32(18).string(message.materialId);
     }
@@ -332,21 +336,13 @@ export const ApplyBrush: MessageFns<ApplyBrush> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): ApplyBrush {
+  decode(input: BinaryReader | Uint8Array, length?: number): ApplyTerrain {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseApplyBrush();
+    const message = createBaseApplyTerrain();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 8) {
-            break;
-          }
-
-          message.layer = reader.int32() as any;
-          continue;
-        }
         case 2: {
           if (tag !== 18) {
             break;
@@ -372,9 +368,8 @@ export const ApplyBrush: MessageFns<ApplyBrush> = {
     return message;
   },
 
-  fromJSON(object: any): ApplyBrush {
+  fromJSON(object: any): ApplyTerrain {
     return {
-      layer: isSet(object.layer) ? layerFromJSON(object.layer) : 0,
       materialId: isSet(object.materialId)
         ? globalThis.String(object.materialId)
         : isSet(object.material_id)
@@ -386,11 +381,8 @@ export const ApplyBrush: MessageFns<ApplyBrush> = {
     };
   },
 
-  toJSON(message: ApplyBrush): unknown {
+  toJSON(message: ApplyTerrain): unknown {
     const obj: any = {};
-    if (message.layer !== 0) {
-      obj.layer = layerToJSON(message.layer);
-    }
     if (message.materialId !== "") {
       obj.materialId = message.materialId;
     }
@@ -400,13 +392,106 @@ export const ApplyBrush: MessageFns<ApplyBrush> = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<ApplyBrush>, I>>(base?: I): ApplyBrush {
-    return ApplyBrush.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ApplyTerrain>, I>>(base?: I): ApplyTerrain {
+    return ApplyTerrain.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<ApplyBrush>, I>>(object: I): ApplyBrush {
-    const message = createBaseApplyBrush();
-    message.layer = object.layer ?? 0;
+  fromPartial<I extends Exact<DeepPartial<ApplyTerrain>, I>>(object: I): ApplyTerrain {
+    const message = createBaseApplyTerrain();
     message.materialId = object.materialId ?? "";
+    message.coordinates = object.coordinates?.map((e) => Coord.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBasePlaceInfrastructure(): PlaceInfrastructure {
+  return { kind: 0, toZ: 0, coordinates: [] };
+}
+
+export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
+  encode(message: PlaceInfrastructure, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== 0) {
+      writer.uint32(8).int32(message.kind);
+    }
+    if (message.toZ !== 0) {
+      writer.uint32(16).int32(message.toZ);
+    }
+    for (const v of message.coordinates) {
+      Coord.encode(v!, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PlaceInfrastructure {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePlaceInfrastructure();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.toZ = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.coordinates.push(Coord.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PlaceInfrastructure {
+    return {
+      kind: isSet(object.kind) ? infrastructureKindFromJSON(object.kind) : 0,
+      toZ: isSet(object.toZ) ? globalThis.Number(object.toZ) : isSet(object.to_z) ? globalThis.Number(object.to_z) : 0,
+      coordinates: globalThis.Array.isArray(object?.coordinates)
+        ? object.coordinates.map((e: any) => Coord.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: PlaceInfrastructure): unknown {
+    const obj: any = {};
+    if (message.kind !== 0) {
+      obj.kind = infrastructureKindToJSON(message.kind);
+    }
+    if (message.toZ !== 0) {
+      obj.toZ = Math.round(message.toZ);
+    }
+    if (message.coordinates?.length) {
+      obj.coordinates = message.coordinates.map((e) => Coord.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PlaceInfrastructure>, I>>(base?: I): PlaceInfrastructure {
+    return PlaceInfrastructure.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PlaceInfrastructure>, I>>(object: I): PlaceInfrastructure {
+    const message = createBasePlaceInfrastructure();
+    message.kind = object.kind ?? 0;
+    message.toZ = object.toZ ?? 0;
     message.coordinates = object.coordinates?.map((e) => Coord.fromPartial(e)) || [];
     return message;
   },
@@ -580,14 +665,17 @@ export const CommandRequest: MessageFns<CommandRequest> = {
       writer.uint32(10).string(message.parkId);
     }
     switch (message.command?.$case) {
-      case "applyBrush":
-        ApplyBrush.encode(message.command.applyBrush, writer.uint32(18).fork()).join();
+      case "applyTerrain":
+        ApplyTerrain.encode(message.command.applyTerrain, writer.uint32(18).fork()).join();
+        break;
+      case "placeInfrastructure":
+        PlaceInfrastructure.encode(message.command.placeInfrastructure, writer.uint32(26).fork()).join();
         break;
       case "placeBuilding":
-        PlaceBuilding.encode(message.command.placeBuilding, writer.uint32(26).fork()).join();
+        PlaceBuilding.encode(message.command.placeBuilding, writer.uint32(34).fork()).join();
         break;
       case "removeBuilding":
-        RemoveBuilding.encode(message.command.removeBuilding, writer.uint32(34).fork()).join();
+        RemoveBuilding.encode(message.command.removeBuilding, writer.uint32(42).fork()).join();
         break;
     }
     return writer;
@@ -613,7 +701,7 @@ export const CommandRequest: MessageFns<CommandRequest> = {
             break;
           }
 
-          message.command = { $case: "applyBrush", applyBrush: ApplyBrush.decode(reader, reader.uint32()) };
+          message.command = { $case: "applyTerrain", applyTerrain: ApplyTerrain.decode(reader, reader.uint32()) };
           continue;
         }
         case 3: {
@@ -621,11 +709,22 @@ export const CommandRequest: MessageFns<CommandRequest> = {
             break;
           }
 
-          message.command = { $case: "placeBuilding", placeBuilding: PlaceBuilding.decode(reader, reader.uint32()) };
+          message.command = {
+            $case: "placeInfrastructure",
+            placeInfrastructure: PlaceInfrastructure.decode(reader, reader.uint32()),
+          };
           continue;
         }
         case 4: {
           if (tag !== 34) {
+            break;
+          }
+
+          message.command = { $case: "placeBuilding", placeBuilding: PlaceBuilding.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
             break;
           }
 
@@ -648,10 +747,20 @@ export const CommandRequest: MessageFns<CommandRequest> = {
         : isSet(object.park_id)
         ? globalThis.String(object.park_id)
         : "",
-      command: isSet(object.applyBrush)
-        ? { $case: "applyBrush", applyBrush: ApplyBrush.fromJSON(object.applyBrush) }
-        : isSet(object.apply_brush)
-        ? { $case: "applyBrush", applyBrush: ApplyBrush.fromJSON(object.apply_brush) }
+      command: isSet(object.applyTerrain)
+        ? { $case: "applyTerrain", applyTerrain: ApplyTerrain.fromJSON(object.applyTerrain) }
+        : isSet(object.apply_terrain)
+        ? { $case: "applyTerrain", applyTerrain: ApplyTerrain.fromJSON(object.apply_terrain) }
+        : isSet(object.placeInfrastructure)
+        ? {
+          $case: "placeInfrastructure",
+          placeInfrastructure: PlaceInfrastructure.fromJSON(object.placeInfrastructure),
+        }
+        : isSet(object.place_infrastructure)
+        ? {
+          $case: "placeInfrastructure",
+          placeInfrastructure: PlaceInfrastructure.fromJSON(object.place_infrastructure),
+        }
         : isSet(object.placeBuilding)
         ? { $case: "placeBuilding", placeBuilding: PlaceBuilding.fromJSON(object.placeBuilding) }
         : isSet(object.place_building)
@@ -669,8 +778,10 @@ export const CommandRequest: MessageFns<CommandRequest> = {
     if (message.parkId !== "") {
       obj.parkId = message.parkId;
     }
-    if (message.command?.$case === "applyBrush") {
-      obj.applyBrush = ApplyBrush.toJSON(message.command.applyBrush);
+    if (message.command?.$case === "applyTerrain") {
+      obj.applyTerrain = ApplyTerrain.toJSON(message.command.applyTerrain);
+    } else if (message.command?.$case === "placeInfrastructure") {
+      obj.placeInfrastructure = PlaceInfrastructure.toJSON(message.command.placeInfrastructure);
     } else if (message.command?.$case === "placeBuilding") {
       obj.placeBuilding = PlaceBuilding.toJSON(message.command.placeBuilding);
     } else if (message.command?.$case === "removeBuilding") {
@@ -686,9 +797,21 @@ export const CommandRequest: MessageFns<CommandRequest> = {
     const message = createBaseCommandRequest();
     message.parkId = object.parkId ?? "";
     switch (object.command?.$case) {
-      case "applyBrush": {
-        if (object.command?.applyBrush !== undefined && object.command?.applyBrush !== null) {
-          message.command = { $case: "applyBrush", applyBrush: ApplyBrush.fromPartial(object.command.applyBrush) };
+      case "applyTerrain": {
+        if (object.command?.applyTerrain !== undefined && object.command?.applyTerrain !== null) {
+          message.command = {
+            $case: "applyTerrain",
+            applyTerrain: ApplyTerrain.fromPartial(object.command.applyTerrain),
+          };
+        }
+        break;
+      }
+      case "placeInfrastructure": {
+        if (object.command?.placeInfrastructure !== undefined && object.command?.placeInfrastructure !== null) {
+          message.command = {
+            $case: "placeInfrastructure",
+            placeInfrastructure: PlaceInfrastructure.fromPartial(object.command.placeInfrastructure),
+          };
         }
         break;
       }
