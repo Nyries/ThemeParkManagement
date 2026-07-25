@@ -1,7 +1,5 @@
 use engine::game::GameWorld;
 use engine::service::SimulationEngineService;
-use engine::simulation::command_request::Command;
-use engine::simulation::{ApplyBrush, Coord, Layer, PlaceEntity, RemoveEntity, Rotation};
 use tonic::Request;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -11,7 +9,9 @@ use tonic::transport::Server;
 use engine::simulation::{
     simulation_service_client::SimulationServiceClient, 
     simulation_service_server::SimulationServiceServer,
-    CommandRequest, StateRequest};
+    CommandRequest, StateRequest,
+    command_request::Command,
+    ApplyBrush, Coord, Layer, PlaceBuilding, RemoveBuilding, Rotation};
 
 async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channel> {
     let listener = TcpListener::bind("[::1]:0").await.unwrap();
@@ -61,17 +61,17 @@ async fn test_send_command_with_apply_brush_succeeds() {
 }
 
 #[tokio::test]
-async fn test_send_command_with_place_entity_succeeds() {
+async fn test_send_command_with_place_building_succeeds() {
     let mut client = spawn_test_server().await;
 
-    let place_entity  = PlaceEntity {
+    let place_building  = PlaceBuilding {
         template_id: "restaurant-1".into(),
         origin: Some(Coord {x:0, y:0, z:0}),
         rotation: Rotation::Deg180.into()
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
-        command: Command::PlaceEntity(place_entity).into(),
+        command: Command::PlaceBuilding(place_building).into(),
     });
     
     let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
@@ -80,15 +80,15 @@ async fn test_send_command_with_place_entity_succeeds() {
 }
 
 #[tokio::test]
-async fn test_send_command_with_remove_entity_succeeds() {
+async fn test_send_command_with_remove_building_succeeds() {
     let mut client = spawn_test_server().await;
 
-    let remove_entity  = RemoveEntity {
+    let remove_building  = RemoveBuilding {
         position: Some(Coord { x: 0, y: 0, z: 0 })
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
-        command: Command::RemoveEntity(remove_entity).into(),
+        command: Command::RemoveBuilding(remove_building).into(),
     });
     
     let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");

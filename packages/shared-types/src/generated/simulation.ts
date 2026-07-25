@@ -188,22 +188,23 @@ export interface ApplyBrush {
   coordinates: Coord[];
 }
 
-export interface PlaceEntity {
+export interface PlaceBuilding {
   templateId: string;
   origin: Coord | undefined;
   rotation: Rotation;
 }
 
-export interface RemoveEntity {
+export interface RemoveBuilding {
   position: Coord | undefined;
 }
 
 export interface CommandRequest {
   parkId: string;
-  command: { $case: "applyBrush"; applyBrush: ApplyBrush } | { $case: "placeEntity"; placeEntity: PlaceEntity } | {
-    $case: "removeEntity";
-    removeEntity: RemoveEntity;
-  } | undefined;
+  command:
+    | { $case: "applyBrush"; applyBrush: ApplyBrush }
+    | { $case: "placeBuilding"; placeBuilding: PlaceBuilding }
+    | { $case: "removeBuilding"; removeBuilding: RemoveBuilding }
+    | undefined;
 }
 
 export interface CommandResponse {
@@ -411,12 +412,12 @@ export const ApplyBrush: MessageFns<ApplyBrush> = {
   },
 };
 
-function createBasePlaceEntity(): PlaceEntity {
+function createBasePlaceBuilding(): PlaceBuilding {
   return { templateId: "", origin: undefined, rotation: 0 };
 }
 
-export const PlaceEntity: MessageFns<PlaceEntity> = {
-  encode(message: PlaceEntity, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const PlaceBuilding: MessageFns<PlaceBuilding> = {
+  encode(message: PlaceBuilding, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.templateId !== "") {
       writer.uint32(10).string(message.templateId);
     }
@@ -429,10 +430,10 @@ export const PlaceEntity: MessageFns<PlaceEntity> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): PlaceEntity {
+  decode(input: BinaryReader | Uint8Array, length?: number): PlaceBuilding {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBasePlaceEntity();
+    const message = createBasePlaceBuilding();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -469,7 +470,7 @@ export const PlaceEntity: MessageFns<PlaceEntity> = {
     return message;
   },
 
-  fromJSON(object: any): PlaceEntity {
+  fromJSON(object: any): PlaceBuilding {
     return {
       templateId: isSet(object.templateId)
         ? globalThis.String(object.templateId)
@@ -481,7 +482,7 @@ export const PlaceEntity: MessageFns<PlaceEntity> = {
     };
   },
 
-  toJSON(message: PlaceEntity): unknown {
+  toJSON(message: PlaceBuilding): unknown {
     const obj: any = {};
     if (message.templateId !== "") {
       obj.templateId = message.templateId;
@@ -495,11 +496,11 @@ export const PlaceEntity: MessageFns<PlaceEntity> = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<PlaceEntity>, I>>(base?: I): PlaceEntity {
-    return PlaceEntity.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<PlaceBuilding>, I>>(base?: I): PlaceBuilding {
+    return PlaceBuilding.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<PlaceEntity>, I>>(object: I): PlaceEntity {
-    const message = createBasePlaceEntity();
+  fromPartial<I extends Exact<DeepPartial<PlaceBuilding>, I>>(object: I): PlaceBuilding {
+    const message = createBasePlaceBuilding();
     message.templateId = object.templateId ?? "";
     message.origin = (object.origin !== undefined && object.origin !== null)
       ? Coord.fromPartial(object.origin)
@@ -509,22 +510,22 @@ export const PlaceEntity: MessageFns<PlaceEntity> = {
   },
 };
 
-function createBaseRemoveEntity(): RemoveEntity {
+function createBaseRemoveBuilding(): RemoveBuilding {
   return { position: undefined };
 }
 
-export const RemoveEntity: MessageFns<RemoveEntity> = {
-  encode(message: RemoveEntity, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const RemoveBuilding: MessageFns<RemoveBuilding> = {
+  encode(message: RemoveBuilding, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.position !== undefined) {
       Coord.encode(message.position, writer.uint32(10).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): RemoveEntity {
+  decode(input: BinaryReader | Uint8Array, length?: number): RemoveBuilding {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseRemoveEntity();
+    const message = createBaseRemoveBuilding();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -545,11 +546,11 @@ export const RemoveEntity: MessageFns<RemoveEntity> = {
     return message;
   },
 
-  fromJSON(object: any): RemoveEntity {
+  fromJSON(object: any): RemoveBuilding {
     return { position: isSet(object.position) ? Coord.fromJSON(object.position) : undefined };
   },
 
-  toJSON(message: RemoveEntity): unknown {
+  toJSON(message: RemoveBuilding): unknown {
     const obj: any = {};
     if (message.position !== undefined) {
       obj.position = Coord.toJSON(message.position);
@@ -557,11 +558,11 @@ export const RemoveEntity: MessageFns<RemoveEntity> = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<RemoveEntity>, I>>(base?: I): RemoveEntity {
-    return RemoveEntity.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<RemoveBuilding>, I>>(base?: I): RemoveBuilding {
+    return RemoveBuilding.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<RemoveEntity>, I>>(object: I): RemoveEntity {
-    const message = createBaseRemoveEntity();
+  fromPartial<I extends Exact<DeepPartial<RemoveBuilding>, I>>(object: I): RemoveBuilding {
+    const message = createBaseRemoveBuilding();
     message.position = (object.position !== undefined && object.position !== null)
       ? Coord.fromPartial(object.position)
       : undefined;
@@ -582,11 +583,11 @@ export const CommandRequest: MessageFns<CommandRequest> = {
       case "applyBrush":
         ApplyBrush.encode(message.command.applyBrush, writer.uint32(18).fork()).join();
         break;
-      case "placeEntity":
-        PlaceEntity.encode(message.command.placeEntity, writer.uint32(26).fork()).join();
+      case "placeBuilding":
+        PlaceBuilding.encode(message.command.placeBuilding, writer.uint32(26).fork()).join();
         break;
-      case "removeEntity":
-        RemoveEntity.encode(message.command.removeEntity, writer.uint32(34).fork()).join();
+      case "removeBuilding":
+        RemoveBuilding.encode(message.command.removeBuilding, writer.uint32(34).fork()).join();
         break;
     }
     return writer;
@@ -620,7 +621,7 @@ export const CommandRequest: MessageFns<CommandRequest> = {
             break;
           }
 
-          message.command = { $case: "placeEntity", placeEntity: PlaceEntity.decode(reader, reader.uint32()) };
+          message.command = { $case: "placeBuilding", placeBuilding: PlaceBuilding.decode(reader, reader.uint32()) };
           continue;
         }
         case 4: {
@@ -628,7 +629,7 @@ export const CommandRequest: MessageFns<CommandRequest> = {
             break;
           }
 
-          message.command = { $case: "removeEntity", removeEntity: RemoveEntity.decode(reader, reader.uint32()) };
+          message.command = { $case: "removeBuilding", removeBuilding: RemoveBuilding.decode(reader, reader.uint32()) };
           continue;
         }
       }
@@ -651,14 +652,14 @@ export const CommandRequest: MessageFns<CommandRequest> = {
         ? { $case: "applyBrush", applyBrush: ApplyBrush.fromJSON(object.applyBrush) }
         : isSet(object.apply_brush)
         ? { $case: "applyBrush", applyBrush: ApplyBrush.fromJSON(object.apply_brush) }
-        : isSet(object.placeEntity)
-        ? { $case: "placeEntity", placeEntity: PlaceEntity.fromJSON(object.placeEntity) }
-        : isSet(object.place_entity)
-        ? { $case: "placeEntity", placeEntity: PlaceEntity.fromJSON(object.place_entity) }
-        : isSet(object.removeEntity)
-        ? { $case: "removeEntity", removeEntity: RemoveEntity.fromJSON(object.removeEntity) }
-        : isSet(object.remove_entity)
-        ? { $case: "removeEntity", removeEntity: RemoveEntity.fromJSON(object.remove_entity) }
+        : isSet(object.placeBuilding)
+        ? { $case: "placeBuilding", placeBuilding: PlaceBuilding.fromJSON(object.placeBuilding) }
+        : isSet(object.place_building)
+        ? { $case: "placeBuilding", placeBuilding: PlaceBuilding.fromJSON(object.place_building) }
+        : isSet(object.removeBuilding)
+        ? { $case: "removeBuilding", removeBuilding: RemoveBuilding.fromJSON(object.removeBuilding) }
+        : isSet(object.remove_building)
+        ? { $case: "removeBuilding", removeBuilding: RemoveBuilding.fromJSON(object.remove_building) }
         : undefined,
     };
   },
@@ -670,10 +671,10 @@ export const CommandRequest: MessageFns<CommandRequest> = {
     }
     if (message.command?.$case === "applyBrush") {
       obj.applyBrush = ApplyBrush.toJSON(message.command.applyBrush);
-    } else if (message.command?.$case === "placeEntity") {
-      obj.placeEntity = PlaceEntity.toJSON(message.command.placeEntity);
-    } else if (message.command?.$case === "removeEntity") {
-      obj.removeEntity = RemoveEntity.toJSON(message.command.removeEntity);
+    } else if (message.command?.$case === "placeBuilding") {
+      obj.placeBuilding = PlaceBuilding.toJSON(message.command.placeBuilding);
+    } else if (message.command?.$case === "removeBuilding") {
+      obj.removeBuilding = RemoveBuilding.toJSON(message.command.removeBuilding);
     }
     return obj;
   },
@@ -691,17 +692,20 @@ export const CommandRequest: MessageFns<CommandRequest> = {
         }
         break;
       }
-      case "placeEntity": {
-        if (object.command?.placeEntity !== undefined && object.command?.placeEntity !== null) {
-          message.command = { $case: "placeEntity", placeEntity: PlaceEntity.fromPartial(object.command.placeEntity) };
+      case "placeBuilding": {
+        if (object.command?.placeBuilding !== undefined && object.command?.placeBuilding !== null) {
+          message.command = {
+            $case: "placeBuilding",
+            placeBuilding: PlaceBuilding.fromPartial(object.command.placeBuilding),
+          };
         }
         break;
       }
-      case "removeEntity": {
-        if (object.command?.removeEntity !== undefined && object.command?.removeEntity !== null) {
+      case "removeBuilding": {
+        if (object.command?.removeBuilding !== undefined && object.command?.removeBuilding !== null) {
           message.command = {
-            $case: "removeEntity",
-            removeEntity: RemoveEntity.fromPartial(object.command.removeEntity),
+            $case: "removeBuilding",
+            removeBuilding: RemoveBuilding.fromPartial(object.command.removeBuilding),
           };
         }
         break;

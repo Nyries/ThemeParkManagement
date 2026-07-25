@@ -2,8 +2,8 @@ import * as grpc from "@grpc/grpc-js";
 import {
   ApplyBrush,
   CommandResponse,
-  PlaceEntity,
-  RemoveEntity,
+  PlaceBuilding,
+  RemoveBuilding,
   SimulationServiceClient,
   WorldStateResponse,
 } from "@app/shared-types";
@@ -33,15 +33,15 @@ export function sendApplyBrush(
   });
 }
 
-export function sendPlaceEntity(
+export function sendPlaceBuilding(
   parkId: string,
-  placeEntity: PlaceEntity,
+  placeBuilding: PlaceBuilding,
 ): Promise<CommandResponse> {
   return new Promise((resolve, reject) => {
     engineClient.sendCommand(
       {
         parkId: parkId,
-        command: { $case: "placeEntity", placeEntity },
+        command: { $case: "placeBuilding", placeBuilding },
       },
       (error: grpc.ServiceError | null, response: CommandResponse) => {
         if (error) reject(error);
@@ -51,15 +51,15 @@ export function sendPlaceEntity(
   });
 }
 
-export function sendRemoveEntity(
+export function sendRemoveBuilding(
   parkId: string,
-  removeEntity: RemoveEntity,
+  removeBuilding: RemoveBuilding,
 ): Promise<CommandResponse> {
   return new Promise((resolve, reject) => {
     engineClient.sendCommand(
       {
         parkId: parkId,
-        command: { $case: "removeEntity", removeEntity },
+        command: { $case: "removeBuilding", removeBuilding },
       },
       (error: grpc.ServiceError | null, response: CommandResponse) => {
         if (error) reject(error);
