@@ -33,13 +33,13 @@ enum Rotation {
   ROTATION_DEG_270 = 3;
 }
 
-message PlaceEntity {
+message PlaceBuilding {
   string template_id = 1;
   Coord origin = 2;
   Rotation rotation = 3;
 }
 
-message RemoveEntity {
+message RemoveBuilding {
   Coord position = 1;
 }
 
@@ -47,8 +47,8 @@ message CommandRequest {
   string park_id = 1;
   oneof command {
     ApplyBrush apply_brush = 2;
-    PlaceEntity place_entity = 3;
-    RemoveEntity remove_entity = 4;
+    PlaceBuilding place_building = 3;
+    RemoveBuilding remove_building = 4;
   }  
 }
 
