@@ -1,65 +1,51 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as grpc from '@grpc/grpc-js';
 
-// 1. On mocke complètement @grpc/grpc-js et proto-loader si nécessaire,
-// ou plus simplement, on mocke le module engineClient en interceptant le constructeur gRPC.
-const mockSendCommand = vi.fn();
-const mockStreamState = vi.fn();
+const { mockSendCommand, mockStreamState } = vi.hoisted(() => ({
+  mockSendCommand: vi.fn(),
+  mockStreamState: vi.fn(),
+}));
 
-vi.mock('../engineClient', () => {
+vi.mock('@app/shared-types', async () => {
+  const actual = await vi.importActual<typeof import('@app/shared-types')>('@app/shared-types');
   return {
-    engineClient: {
-      SendCommand: (...args: any[]) => mockSendCommand(...args),
-      StreamState: (...args: any[]) => mockStreamState(...args),
-    },
-    sendCommandToEngine: async (actionType: string, x: number, y: number, payload: object) => {
-      return new Promise((resolve, reject) => {
-        mockSendCommand(
-          { action_type: actionType, x, y, payload: JSON.stringify(payload) },
-          (err: any, res: any) => (err ? reject(err) : resolve(res))
-        );
-      });
-    },
-    subscribeToEngineStream: (parkId: string, onTick: any, onError: any) => {
-      const call = mockStreamState({ park_id: parkId });
-      call.on('data', onTick);
-      call.on('error', onError);
-      return call;
+    ...actual,
+    SimulationServiceClient: class {
+      sendCommand = mockSendCommand;
+      streamState = mockStreamState;
     },
   };
 });
 
-// Import après le mock
-import { sendCommandToEngine, subscribeToEngineStream, engineClient } from '../engineClient';
+import {
+  sendApplyTerrain,
+  sendPlaceInfrastructure,
+  sendPlaceBuilding,
+  sendRemoveBuilding,
+  subscribeToEngineStream,
+} from '../engineClient';
 
 describe('EngineClient Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('sendCommandToEngine', () => {
-    it('should successfully resolve when engine answers correctly', async () => {
-      const mockResponse = { success: true, message: 'OK' };
-      mockSendCommand.mockImplementation((_payload, callback) => {
-        callback(null, mockResponse);
-      });
+  describe('sendApplyTerrain', () => {
+    it('resolves with the engine response on success', async () => {
+      const mockResponse = { success: true, message: 'OK', errorCode: 0 };
+      mockSendCommand.mockImplementation((_request, callback) => callback(null, mockResponse));
 
-      const result = await sendCommandToEngine('SET_TILE', 5, 10, { type: 'road' });
+      const applyTerrain = { materialId: 'grass', coordinates: [{ x: 0, y: 0, z: 0 }] };
+      const result = await sendApplyTerrain('park-1', applyTerrain);
 
-      expect(mockSendCommand).toHaveBeenCalledTimes(1);
       expect(mockSendCommand).toHaveBeenCalledWith(
-        {
-          action_type: 'SET_TILE',
-          x: 5,
-          y: 10,
-          payload: JSON.stringify({ type: 'road' }),
-        },
-        expect.any(Function)
+        { parkId: 'park-1', command: { $case: 'applyTerrain', applyTerrain } },
+        expect.any(Function),
       );
       expect(result).toEqual(mockResponse);
     });
 
-    it('should reject the promise in case of gRPC error', async () => {
+    it('rejects when the engine returns a gRPC error', async () => {
       const mockError: grpc.ServiceError = {
         name: 'GrpcError',
         message: 'Unavailable',
@@ -67,37 +53,78 @@ describe('EngineClient Service', () => {
         details: 'Service down',
         metadata: new grpc.Metadata(),
       };
+      mockSendCommand.mockImplementation((_request, callback) => callback(mockError, null));
 
-      mockSendCommand.mockImplementation((_payload, callback) => {
-        callback(mockError, null);
-      });
+      await expect(
+        sendApplyTerrain('park-1', { materialId: 'grass', coordinates: [] }),
+      ).rejects.toEqual(mockError);
+    });
+  });
 
-      await expect(sendCommandToEngine('SET_TILE', 1, 1, {})).rejects.toEqual(mockError);
+  describe('sendPlaceInfrastructure', () => {
+    it('wraps the payload in the placeInfrastructure oneof case', async () => {
+      mockSendCommand.mockImplementation((_request, callback) =>
+        callback(null, { success: true, message: 'OK', errorCode: 0 }),
+      );
+
+      const placeInfrastructure = { kind: 1, toZ: 0, coordinates: [{ x: 0, y: 0, z: 0 }] };
+      await sendPlaceInfrastructure('park-1', placeInfrastructure);
+
+      expect(mockSendCommand).toHaveBeenCalledWith(
+        { parkId: 'park-1', command: { $case: 'placeInfrastructure', placeInfrastructure } },
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('sendPlaceBuilding', () => {
+    it('wraps the payload in the placeBuilding oneof case', async () => {
+      mockSendCommand.mockImplementation((_request, callback) =>
+        callback(null, { success: true, message: 'OK', errorCode: 0 }),
+      );
+
+      const placeBuilding = { templateId: 'restaurant-1', origin: { x: 0, y: 0, z: 0 }, rotation: 0 };
+      await sendPlaceBuilding('park-1', placeBuilding);
+
+      expect(mockSendCommand).toHaveBeenCalledWith(
+        { parkId: 'park-1', command: { $case: 'placeBuilding', placeBuilding } },
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('sendRemoveBuilding', () => {
+    it('wraps the payload in the removeBuilding oneof case', async () => {
+      mockSendCommand.mockImplementation((_request, callback) =>
+        callback(null, { success: true, message: 'OK', errorCode: 0 }),
+      );
+
+      const removeBuilding = { position: { x: 0, y: 0, z: 0 } };
+      await sendRemoveBuilding('park-1', removeBuilding);
+
+      expect(mockSendCommand).toHaveBeenCalledWith(
+        { parkId: 'park-1', command: { $case: 'removeBuilding', removeBuilding } },
+        expect.any(Function),
+      );
     });
   });
 
   describe('subscribeToEngineStream', () => {
-    it('should listen to stream data and trigger onTick callback', () => {
+    it('forwards stream data to onTick and listens for stream errors', () => {
       const mockCall = {
-        on: vi.fn((event: string, handler: Function) => {
-          if (event === 'data') {
-            handler({ tick_count: 42, dirty_chunks_json: '{}' });
-          }
+        on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+          if (event === 'data') handler({ tickCount: '42', dirtyChunksJson: '{}' });
           return mockCall;
         }),
-        cancel: vi.fn(),
       };
-
       mockStreamState.mockReturnValue(mockCall);
 
-      const onTickMock = vi.fn();
-      const onErrorMock = vi.fn();
+      const onTick = vi.fn();
+      const onError = vi.fn();
+      const call = subscribeToEngineStream('park-1', onTick, onError);
 
-      const call = subscribeToEngineStream('park-1', onTickMock, onErrorMock);
-
-      expect(mockStreamState).toHaveBeenCalledWith({ park_id: 'park-1' });
-      expect(mockCall.on).toHaveBeenCalledWith('data', expect.any(Function));
-      expect(onTickMock).toHaveBeenCalledWith({ tick_count: 42, dirty_chunks_json: '{}' });
+      expect(mockStreamState).toHaveBeenCalledWith({ parkId: 'park-1' });
+      expect(onTick).toHaveBeenCalledWith({ tickCount: '42', dirtyChunksJson: '{}' });
       expect(call).toBe(mockCall);
     });
   });

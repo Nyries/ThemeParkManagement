@@ -1,8 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
 import {
-  ApplyBrush,
+  ApplyTerrain,
   CommandResponse,
   PlaceBuilding,
+  PlaceInfrastructure,
   RemoveBuilding,
   SimulationServiceClient,
   WorldStateResponse,
@@ -15,15 +16,33 @@ export const engineClient = new SimulationServiceClient(
   grpc.credentials.createInsecure(),
 );
 
-export function sendApplyBrush(
+export function sendApplyTerrain(
   parkId: string,
-  applyBrush: ApplyBrush,
+  applyTerrain: ApplyTerrain,
 ): Promise<CommandResponse> {
   return new Promise((resolve, reject) => {
     engineClient.sendCommand(
       {
         parkId: parkId,
-        command: { $case: "applyBrush", applyBrush },
+        command: { $case: "applyTerrain", applyTerrain },
+      },
+      (error: grpc.ServiceError | null, response: CommandResponse) => {
+        if (error) reject(error);
+        else resolve(response);
+      },
+    );
+  });
+}
+
+export function sendPlaceInfrastructure(
+  parkId: string,
+  placeInfrastructure: PlaceInfrastructure,
+): Promise<CommandResponse> {
+  return new Promise((resolve, reject) => {
+    engineClient.sendCommand(
+      {
+        parkId: parkId,
+        command: { $case: "placeInfrastructure", placeInfrastructure },
       },
       (error: grpc.ServiceError | null, response: CommandResponse) => {
         if (error) reject(error);
