@@ -11,7 +11,7 @@ use engine::simulation::{
     simulation_service_server::SimulationServiceServer,
     CommandRequest, StateRequest,
     command_request::Command,
-    ApplyBrush, Coord, Layer, PlaceBuilding, RemoveBuilding, Rotation};
+    ApplyTerrain, Coord, PlaceInfrastructure, InfrastructureKind, PlaceBuilding, RemoveBuilding, Rotation};
 
 async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channel> {
     let listener = TcpListener::bind("[::1]:0").await.unwrap();
@@ -42,17 +42,35 @@ async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channe
 }
 
 #[tokio::test]
-async fn test_send_command_with_apply_brush_succeeds() {
+async fn test_send_command_with_apply_terrain_succeeds() {
     let mut client = spawn_test_server().await;
 
-    let apply_brush  = ApplyBrush {
-        layer: Layer::Terrain.into(),
+    let apply_terrain  = ApplyTerrain {
         material_id: "grass".into(),
         coordinates: vec![Coord {x:0, y:0, z:0}]
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
-        command: Command::ApplyBrush(apply_brush).into(),
+        command: Command::ApplyTerrain(apply_terrain).into(),
+    });
+    
+    let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
+
+    assert!(response.into_inner().success);
+}
+
+#[tokio::test]
+async fn test_send_command_with_place_infrastructure_succeeds() {
+    let mut client = spawn_test_server().await;
+
+        let place_infrastructure  = PlaceInfrastructure {
+            kind: InfrastructureKind::Path.into(),
+            to_z: 0,
+            coordinates: vec![Coord {x:0, y:0, z:0}]
+        };
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceInfrastructure(place_infrastructure).into(),
     });
     
     let response = client.send_command(request).await.expect("Failed calling gRPC SendCommand");
