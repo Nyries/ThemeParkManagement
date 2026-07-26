@@ -33,6 +33,31 @@ impl SimulationService for SimulationEngineService {
             None => "Empty",
         };
         println!("Order received from Gateway: {action_type}");
+        let mut world = self.world.lock().unwrap();
+        let result: Result<(), ErrorCode> = match &req.command {
+            Some(Command::ApplyBrush(b)) => {
+                let mut outcome = Ok(());
+                // Validation of the command
+                for coord in &b.coordinates {
+                    outcome = world.park_map.can_apply_brush(coord.x, coord.y, coord.z, b.layer());
+                    if outcome.is_err() {
+                        break;
+                    }
+                }
+                outcome
+            },
+            Some(Command::PlaceEntity(p)) => {
+                let mut outcome = Ok(());
+                // Validation of the command
+                // outcome = world.park_map.can_place_building(p.origin, footprint, rotation, template_id)
+                outcome
+
+            }
+            Some(Command::RemoveEntity(r)) => {
+                Ok(())
+            }
+            None => Err(ErrorCode::ErrorEmpty),
+        };
 
         let mut error_code = ErrorCode::ErrorNone;
         if action_type == "Empty" {
