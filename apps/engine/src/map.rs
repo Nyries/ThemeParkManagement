@@ -51,11 +51,6 @@ impl Bounds3d {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct Material {
-    pub material_id: String
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum InfrastructureKind {
     Path,
@@ -73,7 +68,7 @@ pub struct BuildingId {
 pub struct ParkMap {
     pub map_id: String,
     pub bounds: Bounds3d,
-    pub terrain: HashMap<(i32, i32, i32), Material>,
+    pub terrain: HashMap<(i32, i32, i32), String /*Material */ >,
     pub infrastructure: HashMap<(i32, i32, i32), InfrastructureKind>,
     pub buildings: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
@@ -97,11 +92,11 @@ impl ParkMap {
         }
     }
 
-    pub fn set_terrain(&mut self, x: i32, y: i32, z: i32, material: Material) {
+    pub fn set_terrain(&mut self, x: i32, y: i32, z: i32, material: String) {
         self.terrain.insert((x, y, z), material);
     }
 
-    pub fn get_terrain(&self, x: i32, y: i32, z: i32) -> Option<&Material> {
+    pub fn get_terrain(&self, x: i32, y: i32, z: i32) -> Option<&String> {
         self.terrain.get(&(x, y, z))
     }
 
@@ -165,7 +160,7 @@ impl ParkMap {
             }
             if z==0 {
                 if let Some(material) = self.get_terrain(x, y, z) {
-                    if material.material_id == "water" {
+                    if material == "water" {
                         // Add other material_id maybe with an inside field
                         return Err(ErrorCode::ErrorCrossingNotAllowed);
                     }
@@ -221,7 +216,7 @@ impl ParkMap {
                 return Err(ErrorCode::ErrorCollision);
             }
             if let Some(material) = self.get_terrain(x, y, z) {
-                if material.material_id == "water" {
+                if material == "water" {
                     //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
                     return Err(ErrorCode::ErrorCollision);
                 }

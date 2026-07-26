@@ -47,10 +47,10 @@ mod terrain {
 
         assert!(park_map.get_terrain(0, 0, 0).is_none());
 
-        park_map.set_terrain(0, 0, 0, Material { material_id: "grass".into() });
+        park_map.set_terrain(0, 0, 0, "grass".into());
 
         let material = park_map.get_terrain(0, 0, 0).expect("The terrain should exist");
-        assert_eq!(material.material_id, "grass");
+        assert_eq!(material, "grass");
     }
 }
 
@@ -226,7 +226,7 @@ mod can_place_infrastructure {
     #[test]
     fn test_can_place_infrastructure_rejects_path_on_water_at_ground_level() {
         let mut park_map = build_infra_test_map();
-        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+        park_map.set_terrain(0, 0, 0, "water".into());
 
         let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
 
@@ -236,7 +236,7 @@ mod can_place_infrastructure {
     #[test]
     fn test_can_place_infrastructure_allows_path_bridge_over_water() {
         let mut park_map = build_infra_test_map();
-        park_map.set_terrain(0, 0, 0, Material { material_id: "water".into() });
+        park_map.set_terrain(0, 0, 0, "water".into());
 
         // Pont = Path à z=+1 au-dessus de l'eau à z=0
         let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
@@ -382,7 +382,7 @@ mod can_place_building {
     #[test]
     fn test_can_place_building_fails_on_water() {
         let mut park_map = build_placement_test_map();
-        park_map.set_terrain(2, 2, 0, Material { material_id: "water".into() });
+        park_map.set_terrain(2, 2, 0, "water".into());
         let footprint = vec![(0, 0)];
 
         let result = park_map.can_place_building((2, 2, 0), &footprint, Rotation::Deg0, "coaster");
