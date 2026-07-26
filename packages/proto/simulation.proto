@@ -57,7 +57,7 @@ message CommandRequest {
   oneof command {
     ApplyTerrain apply_terrain = 2;
     PlaceInfrastructure place_infrastructure = 3;
-    RemoveBuilding remove_infrastructure = 4;
+    RemoveInfrastructure remove_infrastructure = 4;
     PlaceBuilding place_building = 5;
     RemoveBuilding remove_building = 6;
   }  
