@@ -294,6 +294,36 @@ mod can_place_infrastructure {
     }
 }
 
+mod can_remove_infrastructure {
+    use super::*;
+
+    #[test]
+    fn test_can_remove_infrastructure_succeeds_when_something_exists() {
+        let mut park_map = build_test_map();
+        park_map.set_infrastructure(0, 0, 0, InfrastructureKind::Path);
+
+        assert!(park_map.can_remove_infrastructure(&[(0, 0, 0)]).is_ok());
+    }
+
+    #[test]
+    fn test_can_remove_infrastructure_fails_on_empty_cell() {
+        let park_map = build_test_map();
+
+        let result = park_map.can_remove_infrastructure(&[(0, 0, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorCollision));
+    }
+
+    #[test]
+    fn test_can_remove_infrastructure_fails_out_of_bounds() {
+        let park_map = build_test_map();
+
+        let result = park_map.can_remove_infrastructure(&[(5, 5, 0)]);
+
+        assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
+    }
+}
+
 mod can_place_building {
     use super::*;
 
@@ -378,31 +408,31 @@ mod can_place_building {
     }
 }
 
-mod can_remove {
+mod can_remove_building {
     use super::*;
 
     #[test]
-    fn test_can_remove_succeeds_when_something_exists() {
+    fn test_can_remove_building_succeeds_when_something_exists() {
         let mut park_map = build_test_map();
-        park_map.set_terrain(0, 0, 0, Material { material_id: "grass".into() });
+        park_map.set_buildings(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-giga".into() });
 
-        assert!(park_map.can_remove(0, 0, 0).is_ok());
+        assert!(park_map.can_remove_building(0, 0, 0).is_ok());
     }
 
     #[test]
-    fn test_can_remove_fails_on_empty_cell() {
+    fn test_can_remove_building_fails_on_empty_cell() {
         let park_map = build_test_map();
 
-        let result = park_map.can_remove(0, 0, 0);
+        let result = park_map.can_remove_building(0, 0, 0);
 
         assert_eq!(result, Err(ErrorCode::ErrorCollision));
     }
 
     #[test]
-    fn test_can_remove_fails_out_of_bounds() {
+    fn test_can_remove_building_fails_out_of_bounds() {
         let park_map = build_test_map();
 
-        let result = park_map.can_remove(5, 5, 0);
+        let result = park_map.can_remove_building(5, 5, 0);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }

@@ -27,6 +27,7 @@ impl SimulationService for SimulationEngineService {
         let action_type = match &req.command {
             Some(Command::ApplyTerrain(_)) => "ApplyTerrain",
             Some(Command::PlaceInfrastructure(_)) => "PlaceInfrastructure",
+            Some(Command::RemoveInfrastructure(_)) => "RemoveInfrastructure",
             Some(Command::PlaceBuilding(_)) => "PlaceBuilding",
             Some(Command::RemoveBuilding(_)) => "RemoveBuilding",
             None => "Empty",
@@ -84,7 +85,7 @@ impl SimulationService for SimulationEngineService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::GameWorld, simulation::{ApplyTerrain, Coord, PlaceInfrastructure, InfrastructureKind, PlaceBuilding, RemoveBuilding, Rotation}};
+    use crate::{game::GameWorld, simulation::{ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure, RemoveBuilding, RemoveInfrastructure, Rotation}};
     use std::sync::{Arc, Mutex};
     use tonic::Request;
 
@@ -145,6 +146,30 @@ mod tests {
         assert_eq!(inner.message, "Action executed and registered by the engine");
     }
 
+        #[tokio::test]
+    async fn test_send_command_with_remove_infrastructure_succeeds() {
+        // 1. Initialization of a world and a test service
+        let service = build_service();
+
+        // 2. Creating a mock gRPC request
+        let remove_infrasture  = RemoveInfrastructure {
+            coordinates: [Coord { x: 0, y: 0, z: 0 }].to_vec()
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: Command::RemoveInfrastructure(remove_infrasture).into(),
+        });
+
+        // 3. Calling the gRPC method
+        let response = service.send_command(request).await;
+
+        // 4. Assertions
+        assert!(response.is_ok());
+        let inner = response.unwrap().into_inner();
+        assert!(inner.success);
+        assert_eq!(inner.message, "Action executed and registered by the engine");
+    }
+
     #[tokio::test]
     async fn test_send_command_with_place_building_succeeds() {
         // 1. Initialization of a world and a test service
@@ -170,6 +195,7 @@ mod tests {
         assert!(inner.success);
         assert_eq!(inner.message, "Action executed and registered by the engine");
     }
+
     #[tokio::test]
     async fn test_send_command_with_remove_building_succeeds() {
         // 1. Initialization of a world and a test service

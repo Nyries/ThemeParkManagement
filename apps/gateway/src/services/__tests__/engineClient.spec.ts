@@ -23,6 +23,7 @@ import {
   sendPlaceBuilding,
   sendRemoveBuilding,
   subscribeToEngineStream,
+  sendRemoveInfrastructure,
 } from '../engineClient';
 
 describe('EngineClient Service', () => {
@@ -72,6 +73,22 @@ describe('EngineClient Service', () => {
 
       expect(mockSendCommand).toHaveBeenCalledWith(
         { parkId: 'park-1', command: { $case: 'placeInfrastructure', placeInfrastructure } },
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('sendRemoveInfrastructure', () => {
+    it('wraps the payload in the removeInfrastructure oneof case', async () => {
+      mockSendCommand.mockImplementation((_request, callback) =>
+        callback(null, { success: true, message: 'OK', errorCode: 0 }),
+      );
+
+      const removeInfrastructure = { coordinates: [{ x: 0, y: 0, z: 0 }] };
+      await sendRemoveInfrastructure('park-1', removeInfrastructure);
+
+      expect(mockSendCommand).toHaveBeenCalledWith(
+        { parkId: 'park-1', command: { $case: 'removeInfrastructure', removeInfrastructure } },
         expect.any(Function),
       );
     });

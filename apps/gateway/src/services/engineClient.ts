@@ -5,6 +5,7 @@ import {
   PlaceBuilding,
   PlaceInfrastructure,
   RemoveBuilding,
+  RemoveInfrastructure,
   SimulationServiceClient,
   WorldStateResponse,
 } from "@app/shared-types";
@@ -43,6 +44,24 @@ export function sendPlaceInfrastructure(
       {
         parkId: parkId,
         command: { $case: "placeInfrastructure", placeInfrastructure },
+      },
+      (error: grpc.ServiceError | null, response: CommandResponse) => {
+        if (error) reject(error);
+        else resolve(response);
+      },
+    );
+  });
+}
+
+export function sendRemoveInfrastructure(
+  parkId: string,
+  removeInfrastructure: RemoveInfrastructure,
+): Promise<CommandResponse> {
+  return new Promise((resolve, reject) => {
+    engineClient.sendCommand(
+      {
+        parkId: parkId,
+        command: { $case: "removeInfrastructure", removeInfrastructure },
       },
       (error: grpc.ServiceError | null, response: CommandResponse) => {
         if (error) reject(error);

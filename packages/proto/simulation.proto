@@ -31,6 +31,10 @@ message PlaceInfrastructure {
   repeated Coord coordinates = 3;
 }
 
+message RemoveInfrastructure {
+  repeated Coord coordinates = 1;
+}
+
 enum Rotation {
   ROTATION_DEG_0 = 0;
   ROTATION_DEG_90 = 1;
@@ -53,8 +57,9 @@ message CommandRequest {
   oneof command {
     ApplyTerrain apply_terrain = 2;
     PlaceInfrastructure place_infrastructure = 3;
-    PlaceBuilding place_building = 4;
-    RemoveBuilding remove_building = 5;
+    RemoveInfrastructure remove_infrastructure = 4;
+    PlaceBuilding place_building = 5;
+    RemoveBuilding remove_building = 6;
   }  
 }
 

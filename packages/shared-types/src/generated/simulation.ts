@@ -194,6 +194,10 @@ export interface PlaceInfrastructure {
   coordinates: Coord[];
 }
 
+export interface RemoveInfrastructure {
+  coordinates: Coord[];
+}
+
 export interface PlaceBuilding {
   templateId: string;
   origin: Coord | undefined;
@@ -209,6 +213,7 @@ export interface CommandRequest {
   command:
     | { $case: "applyTerrain"; applyTerrain: ApplyTerrain }
     | { $case: "placeInfrastructure"; placeInfrastructure: PlaceInfrastructure }
+    | { $case: "removeInfrastructure"; removeInfrastructure: RemoveInfrastructure }
     | { $case: "placeBuilding"; placeBuilding: PlaceBuilding }
     | { $case: "removeBuilding"; removeBuilding: RemoveBuilding }
     | undefined;
@@ -497,6 +502,68 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
   },
 };
 
+function createBaseRemoveInfrastructure(): RemoveInfrastructure {
+  return { coordinates: [] };
+}
+
+export const RemoveInfrastructure: MessageFns<RemoveInfrastructure> = {
+  encode(message: RemoveInfrastructure, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.coordinates) {
+      Coord.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RemoveInfrastructure {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRemoveInfrastructure();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.coordinates.push(Coord.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RemoveInfrastructure {
+    return {
+      coordinates: globalThis.Array.isArray(object?.coordinates)
+        ? object.coordinates.map((e: any) => Coord.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: RemoveInfrastructure): unknown {
+    const obj: any = {};
+    if (message.coordinates?.length) {
+      obj.coordinates = message.coordinates.map((e) => Coord.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RemoveInfrastructure>, I>>(base?: I): RemoveInfrastructure {
+    return RemoveInfrastructure.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RemoveInfrastructure>, I>>(object: I): RemoveInfrastructure {
+    const message = createBaseRemoveInfrastructure();
+    message.coordinates = object.coordinates?.map((e) => Coord.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBasePlaceBuilding(): PlaceBuilding {
   return { templateId: "", origin: undefined, rotation: 0 };
 }
@@ -671,11 +738,14 @@ export const CommandRequest: MessageFns<CommandRequest> = {
       case "placeInfrastructure":
         PlaceInfrastructure.encode(message.command.placeInfrastructure, writer.uint32(26).fork()).join();
         break;
+      case "removeInfrastructure":
+        RemoveInfrastructure.encode(message.command.removeInfrastructure, writer.uint32(34).fork()).join();
+        break;
       case "placeBuilding":
-        PlaceBuilding.encode(message.command.placeBuilding, writer.uint32(34).fork()).join();
+        PlaceBuilding.encode(message.command.placeBuilding, writer.uint32(42).fork()).join();
         break;
       case "removeBuilding":
-        RemoveBuilding.encode(message.command.removeBuilding, writer.uint32(42).fork()).join();
+        RemoveBuilding.encode(message.command.removeBuilding, writer.uint32(50).fork()).join();
         break;
     }
     return writer;
@@ -720,11 +790,22 @@ export const CommandRequest: MessageFns<CommandRequest> = {
             break;
           }
 
-          message.command = { $case: "placeBuilding", placeBuilding: PlaceBuilding.decode(reader, reader.uint32()) };
+          message.command = {
+            $case: "removeInfrastructure",
+            removeInfrastructure: RemoveInfrastructure.decode(reader, reader.uint32()),
+          };
           continue;
         }
         case 5: {
           if (tag !== 42) {
+            break;
+          }
+
+          message.command = { $case: "placeBuilding", placeBuilding: PlaceBuilding.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
             break;
           }
 
@@ -761,6 +842,16 @@ export const CommandRequest: MessageFns<CommandRequest> = {
           $case: "placeInfrastructure",
           placeInfrastructure: PlaceInfrastructure.fromJSON(object.place_infrastructure),
         }
+        : isSet(object.removeInfrastructure)
+        ? {
+          $case: "removeInfrastructure",
+          removeInfrastructure: RemoveInfrastructure.fromJSON(object.removeInfrastructure),
+        }
+        : isSet(object.remove_infrastructure)
+        ? {
+          $case: "removeInfrastructure",
+          removeInfrastructure: RemoveInfrastructure.fromJSON(object.remove_infrastructure),
+        }
         : isSet(object.placeBuilding)
         ? { $case: "placeBuilding", placeBuilding: PlaceBuilding.fromJSON(object.placeBuilding) }
         : isSet(object.place_building)
@@ -782,6 +873,8 @@ export const CommandRequest: MessageFns<CommandRequest> = {
       obj.applyTerrain = ApplyTerrain.toJSON(message.command.applyTerrain);
     } else if (message.command?.$case === "placeInfrastructure") {
       obj.placeInfrastructure = PlaceInfrastructure.toJSON(message.command.placeInfrastructure);
+    } else if (message.command?.$case === "removeInfrastructure") {
+      obj.removeInfrastructure = RemoveInfrastructure.toJSON(message.command.removeInfrastructure);
     } else if (message.command?.$case === "placeBuilding") {
       obj.placeBuilding = PlaceBuilding.toJSON(message.command.placeBuilding);
     } else if (message.command?.$case === "removeBuilding") {
@@ -811,6 +904,15 @@ export const CommandRequest: MessageFns<CommandRequest> = {
           message.command = {
             $case: "placeInfrastructure",
             placeInfrastructure: PlaceInfrastructure.fromPartial(object.command.placeInfrastructure),
+          };
+        }
+        break;
+      }
+      case "removeInfrastructure": {
+        if (object.command?.removeInfrastructure !== undefined && object.command?.removeInfrastructure !== null) {
+          message.command = {
+            $case: "removeInfrastructure",
+            removeInfrastructure: RemoveInfrastructure.fromPartial(object.command.removeInfrastructure),
           };
         }
         break;

@@ -192,6 +192,18 @@ impl ParkMap {
         Ok(())
     }
 
+    pub fn can_remove_infrastructure(&self, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
+        for &(x, y, z) in coordinates {
+            if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
+                return Err(ErrorCode::ErrorOutOfBounds);
+            }
+            if self.get_infrastructure(x, y, z).is_none() {
+                return Err(ErrorCode::ErrorCollision);
+            }
+        }
+        Ok(())
+    }
+
     pub fn can_place_building(&self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation, template_id: &str) -> Result<(), ErrorCode> {
         let (ox, oy, oz) = origin;
         let rotated = rotate_footprint(footprint, rotation);
@@ -218,16 +230,17 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_remove(&self, x: i32, y: i32, z: i32) -> Result<(), ErrorCode> {
+    pub fn can_remove_building(&self, x: i32, y: i32, z: i32) -> Result<(), ErrorCode> {
         if !self.is_within_bounds(x, y, z) {
             return Err(ErrorCode::ErrorOutOfBounds);
         }
-        if self.get_buildings(x, y, z).is_none() && self.get_infrastructure(x, y, z).is_none() && self.get_terrain(x, y, z).is_none() {
+        if self.get_buildings(x, y, z).is_none() {
             return Err(ErrorCode::ErrorCollision);
         }
 
         Ok(())
     }
+
 
 }
 
