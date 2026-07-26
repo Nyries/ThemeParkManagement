@@ -1,4 +1,4 @@
-use crate::{game::GameWorld, simulation::ErrorCode};
+use crate::{game::GameWorld, map::Material, simulation::ErrorCode};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,40 +24,46 @@ impl SimulationService for SimulationEngineService {
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
         let req = request.into_inner();
-        let action_type = match &req.command {
-            Some(Command::ApplyTerrain(_)) => "ApplyTerrain",
-            Some(Command::PlaceInfrastructure(_)) => "PlaceInfrastructure",
-            Some(Command::RemoveInfrastructure(_)) => "RemoveInfrastructure",
-            Some(Command::PlaceBuilding(_)) => "PlaceBuilding",
-            Some(Command::RemoveBuilding(_)) => "RemoveBuilding",
-            None => "Empty",
-        };
-        println!("Order received from Gateway: {action_type}");
+        let mut action_type: String = "None".to_string();
         let mut world = self.world.lock().unwrap();
+        let mut outcome = Ok(());
+        
         let result: Result<(), ErrorCode> = match &req.command {
-            Some(Command::ApplyBrush(b)) => {
-                let mut outcome = Ok(());
+            Some(Command::ApplyTerrain(b)) => {
                 // Validation of the command
                 for coord in &b.coordinates {
-                    outcome = world.park_map.can_apply_brush(coord.x, coord.y, coord.z, b.layer());
+                    outcome = world.park_map.can_apply_terrain(coord.x, coord.y, coord.z);
                     if outcome.is_err() {
                         break;
                     }
+                    if outcome.is_ok() {
+                    world.park_map.set_terrain(coord.x, coord.y, coord.z, Material { material_id: b.material_id.clone() });
+                    }
                 }
+                action_type = "ApplyTerrain".to_string();
+
+                
                 outcome
             },
-            Some(Command::PlaceEntity(p)) => {
-                let mut outcome = Ok(());
+            Some(Command::PlaceInfrastructure(p)) => {
+                outcome
+            }
+            
+            Some(Command::RemoveInfrastructure(r)) => {
+                outcome
+            }
+            Some(Command::PlaceBuilding(p)) => {
                 // Validation of the command
                 // outcome = world.park_map.can_place_building(p.origin, footprint, rotation, template_id)
                 outcome
-
+                
             }
-            Some(Command::RemoveEntity(r)) => {
-                Ok(())
+            Some(Command::RemoveBuilding(r)) => {
+                outcome
             }
             None => Err(ErrorCode::ErrorEmpty),
         };
+        println!("Order received from Gateway: {action_type}");
 
         let mut error_code = ErrorCode::ErrorNone;
         if action_type == "Empty" {
