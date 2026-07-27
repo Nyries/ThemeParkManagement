@@ -20,6 +20,13 @@ fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i
     }).collect()
 }
 
+pub(crate) fn footprint_for(template_id: &str) -> Vec<(i32, i32)> {
+    //TODO: create the JSON sparser from catalog
+    match template_id {
+        _ => [(0,0), (0,1), (1,1)].to_vec()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Parcel {
     pub id: String,
@@ -70,7 +77,7 @@ pub struct ParkMap {
     pub bounds: Bounds3d,
     pub terrain: HashMap<(i32, i32, i32), String /*Material */ >,
     pub infrastructure: HashMap<(i32, i32, i32), InfrastructureShape>,
-    pub buildings: HashMap<(i32, i32, i32), BuildingId>,
+    pub building: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
     pub unlocked_levels: HashSet<i32>,
 }
@@ -86,7 +93,7 @@ impl ParkMap {
             bounds,
             terrain: HashMap::new(),
             infrastructure: HashMap::new(),
-            buildings: HashMap::new(),
+            building: HashMap::new(),
             parcels: Vec::new(),
             unlocked_levels
         }
@@ -112,12 +119,28 @@ impl ParkMap {
         self.infrastructure.get(&(x, y, z))
     }
 
-    pub fn set_buildings(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
-        self.buildings.insert((x, y, z), building_id);
+    pub fn set_building(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
+        self.building.insert((x, y, z), building_id);
     }
 
-    pub fn get_buildings(&self, x: i32, y: i32, z: i32) -> Option<&BuildingId> {
-        self.buildings.get(&(x, y, z))
+    pub fn get_building(&self, x: i32, y: i32, z: i32) -> Option<&BuildingId> {
+        self.building.get(&(x, y, z))
+    }
+
+    pub fn get_building_coords_by_building_id(&self, building_id: &str) -> Vec<(i32, i32, i32)>{
+        self.building.iter()
+            .filter(|(_,b)| b.building_id == building_id)
+            .map(|(&coord, _)| coord)
+            .collect()
+    }
+
+    pub fn place_building(&mut self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation, building_id: BuildingId) { 
+        let (ox, oy, oz) = origin;
+        let rotated = rotate_footprint(footprint, rotation);
+
+        for (dx, dy) in rotated {
+            self.set_building(ox + dx, oy + dy, oz, building_id.clone());
+        }
     }
 
     pub fn parcel_at(&self, x: i32, y: i32) -> Option<&Parcel> {
@@ -145,7 +168,7 @@ impl ParkMap {
         if !self.is_unlocked(x, y) {
             return Err(ErrorCode::ErrorOutOfBounds);
         }
-        if self.get_buildings(x, y, z).is_some() {
+        if self.get_building(x, y, z).is_some() {
             return Err(ErrorCode::ErrorCollision);
         }
         Ok(())
@@ -159,7 +182,7 @@ impl ParkMap {
             if !self.is_unlocked(x, y) {
                 return Err(ErrorCode::ErrorOutOfBounds);
             }
-            if self.get_buildings(x, y, z).is_some() {
+            if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
             if z==0 {
@@ -171,7 +194,7 @@ impl ParkMap {
                 }
             }
             if z == 1 || z == -1 {
-                if let Some(building) = self.get_buildings(x, y, 0) {
+                if let Some(building) = self.get_building(x, y, 0) {
                     let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
                     let allowed = if z == 1 { allows_above } else { allows_below };
                     if !allowed {
@@ -203,7 +226,7 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_place_building(&self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation, template_id: &str) -> Result<(), ErrorCode> {
+    pub fn can_place_building(&self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation) -> Result<(), ErrorCode> {
         let (ox, oy, oz) = origin;
         let rotated = rotate_footprint(footprint, rotation);
 
@@ -216,7 +239,7 @@ impl ParkMap {
             if !self.is_unlocked(x, y) {
                 return Err(ErrorCode::ErrorOutOfBounds);
             }
-            if self.get_buildings(x, y, z).is_some() {
+            if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
             if let Some(material) = self.get_terrain(x, y, z) {
@@ -233,7 +256,7 @@ impl ParkMap {
         if !self.is_within_bounds(x, y, z) {
             return Err(ErrorCode::ErrorOutOfBounds);
         }
-        if self.get_buildings(x, y, z).is_none() {
+        if self.get_building(x, y, z).is_none() {
             return Err(ErrorCode::ErrorCollision);
         }
 

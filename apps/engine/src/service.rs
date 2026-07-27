@@ -1,4 +1,4 @@
-use crate::{game::GameWorld, map::InfrastructureShape, simulation::{ErrorCode, InfrastructureKind}};
+use crate::{game::GameWorld, map::{BuildingId, InfrastructureShape, footprint_for}, simulation::Rotation};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -7,7 +7,7 @@ use tonic::{Request, Response, Status};
 use crate::simulation::{
     simulation_service_server:: SimulationService, 
     CommandRequest, CommandResponse, StateRequest, WorldStateResponse,
-    command_request::Command
+    command_request::Command, ErrorCode, InfrastructureKind
 };
 
 
@@ -82,8 +82,21 @@ impl SimulationService for SimulationEngineService {
                 outcome
             }
             Some(Command::PlaceBuilding(p)) => {
-                // Validation of the command
-                // outcome = world.park_map.can_place_building(p.origin, footprint, rotation, template_id)
+                let footprint = footprint_for(&p.template_id);
+                outcome = match (p.origin.as_ref(), Rotation::try_from(p.rotation)) {
+                    (Some(origin), Ok(rotation)) => {
+                        let result = world.park_map.can_place_building((origin.x, origin.y, origin.z), &footprint, rotation);
+                        if result.is_ok() {
+                            let building_id = BuildingId {
+                                building_id: uuid::Uuid::new_v4().to_string(),
+                                template_id: p.template_id.clone(),
+                            };
+                            world.park_map.place_building((origin.x, origin.y, origin.z), &footprint, rotation, building_id);
+                        }
+                        result
+                    }
+                    _ => Err(ErrorCode::ErrorEmpty),
+                };
                 action_type = "PlaceBuilding".to_string();
                 outcome
                 
