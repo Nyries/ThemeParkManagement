@@ -104,6 +104,10 @@ impl ParkMap {
         self.infrastructure.insert((x, y, z), infrastructure_kind);
     }
 
+    pub fn remove_infrasture(&mut self, x: i32, y: i32, z: i32) {
+        self.infrastructure.remove(&(x, y, z));
+    }
+
     pub fn get_infrastructure(&self, x: i32, y: i32, z: i32) -> Option<&InfrastructureShape> {
         self.infrastructure.get(&(x, y, z))
     }

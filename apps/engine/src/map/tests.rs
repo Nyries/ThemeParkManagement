@@ -58,7 +58,7 @@ mod infrastructure {
     use super::*;
 
     #[test]
-    fn test_set_and_get_infrastructure() {
+    fn test_set_get_remove_infrastructure() {
         let mut park_map = build_test_map();
 
         assert!(park_map.get_infrastructure(0, 0, 0).is_none());
@@ -67,6 +67,10 @@ mod infrastructure {
 
         let infrastructure_kind = park_map.get_infrastructure(0, 0, 0).expect("The infrastructure should exist");
         assert_eq!(infrastructure_kind, &InfrastructureShape::Path);
+        
+        park_map.remove_infrasture(0, 0, 0);
+        assert!(park_map.get_infrastructure(0, 0, 0).is_none())
+
     }
 }
 
