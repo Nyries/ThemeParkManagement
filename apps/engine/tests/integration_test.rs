@@ -1,4 +1,5 @@
 use engine::game::GameWorld;
+use engine::map::Parcel;
 use engine::service::SimulationEngineService;
 use engine::simulation::RemoveInfrastructure;
 use tonic::Request;
@@ -20,6 +21,12 @@ async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channe
     let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
     
     let world = Arc::new(Mutex::new(GameWorld::new()));
+    world.lock().unwrap().park_map.parcels.push(Parcel {
+        id: "p1".into(),
+        cells: vec![(0, 0), (0, 1), (1, 1)],
+        unlocked: true,
+        price: 0,
+    });
     let (state_sender, _) = tokio::sync::broadcast::channel(16);
     let service = SimulationEngineService { world, state_sender };
 
@@ -83,6 +90,17 @@ async fn test_send_command_with_place_infrastructure_succeeds() {
 async fn test_send_command_with_remove_infrastructure_succeeds() {
     let mut client = spawn_test_server().await;
 
+    let place_infrastructure = PlaceInfrastructure {
+        kind: InfrastructureKind::Path.into(),
+        to_z: 0,
+        coordinates: vec![Coord {x:0, y:0, z:0}]
+    };
+    client.send_command(Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceInfrastructure(place_infrastructure).into(),
+    })).await.expect("Failed calling gRPC SendCommand (setup)");
+
+
     let remove_infrastructure  = RemoveInfrastructure {
         coordinates: [Coord { x: 0, y: 0, z: 0 }].to_vec(),
     };
@@ -103,7 +121,7 @@ async fn test_send_command_with_place_building_succeeds() {
     let place_building  = PlaceBuilding {
         template_id: "restaurant-1".into(),
         origin: Some(Coord {x:0, y:0, z:0}),
-        rotation: Rotation::Deg180.into()
+        rotation: Rotation::Deg0.into()
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -118,6 +136,16 @@ async fn test_send_command_with_place_building_succeeds() {
 #[tokio::test]
 async fn test_send_command_with_remove_building_succeeds() {
     let mut client = spawn_test_server().await;
+
+    let place_building = PlaceBuilding {
+        template_id: "restaurant-1".into(),
+        origin: Some(Coord {x:0, y:0, z:0}),
+        rotation: Rotation::Deg0.into()
+    };
+    client.send_command(Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceBuilding(place_building).into(),
+    })).await.expect("Failed calling gRPC SendCommand (setup)");
 
     let remove_building  = RemoveBuilding {
         position: Some(Coord { x: 0, y: 0, z: 0 })

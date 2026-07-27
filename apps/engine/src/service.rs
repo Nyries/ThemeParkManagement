@@ -17,6 +17,19 @@ pub struct SimulationEngineService {
     pub state_sender: tokio::sync::broadcast::Sender<WorldStateResponse>,
 }
 
+fn message_for(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::ErrorNone => "Action executed and registered by the engine",
+        ErrorCode::ErrorOutOfBounds => "Target cell is out of bounds or on a locked level/parcel",
+        ErrorCode::ErrorCollision => "Target cell is already occupied",
+        ErrorCode::ErrorCrossingNotAllowed => "Crossing not allowed here",
+        ErrorCode::ErrorEmpty => "Invalid or empty command",
+        ErrorCode::ErrorInvalidTemplate => "Invalid template",
+        ErrorCode::ErrorInsufficientFunds => "Not enough funds"
+    }
+}
+
+
 #[tonic::async_trait]
 impl SimulationService for SimulationEngineService {
     async fn send_command(
@@ -101,7 +114,7 @@ impl SimulationService for SimulationEngineService {
                 outcome
             }
             Some(Command::RemoveBuilding(r)) => {
-                outcome =  match (r.position.as_ref()) {
+                outcome =  match r.position.as_ref() {
                     Some(origin) => {
                         let result = world.park_map.can_remove_building(origin.x, origin.y, origin.z);
                         if result.is_ok() {
@@ -119,28 +132,33 @@ impl SimulationService for SimulationEngineService {
         };
         println!("Order received from Gateway: {action_type}");
 
-        let mut error_code = ErrorCode::ErrorNone;
         if action_type == "Empty" {
-            error_code = ErrorCode::ErrorEmpty;
             return Ok(Response::new(CommandResponse {
                 success: false,
-                error_code: error_code.into(),
+                error_code: ErrorCode::ErrorEmpty.into(),
                 message: "No command given".into()
             }));
         } else if req.park_id == "" {
-            error_code = ErrorCode::ErrorEmpty;
             return Ok(Response::new(CommandResponse {
                 success: false,
-                error_code: error_code.into(),
+                error_code: ErrorCode::ErrorEmpty.into(),
                 message: "park_id is empty".into()
             }));
         }
 
-        Ok(Response::new(CommandResponse { 
-            success: true, 
-            error_code: error_code.into(),
-            message: "Action executed and registered by the engine".into(),
-        }))
+        match result {
+            Ok(()) => Ok(Response::new(CommandResponse {
+                success: true,
+                error_code: ErrorCode::ErrorNone.into(),
+                message: "Action executed and registered by the engine".into(),
+            })),
+            Err(code) => Ok(Response::new(CommandResponse { 
+                success: false,
+                error_code: code.into() ,
+                message: message_for(code).into(), 
+            })),
+        }
+
     }
 
     type StreamStateStream = ReceiverStream<Result<WorldStateResponse, Status>>;
