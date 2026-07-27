@@ -142,6 +142,15 @@ impl ParkMap {
             self.set_building(ox + dx, oy + dy, oz, building_id.clone());
         }
     }
+    
+    pub fn remove_building(&mut self, x: i32, y: i32, z: i32) {
+        if let Some(building) = self.get_building(x, y, z) {
+            let building_id = building.building_id.clone();
+            for coord in self.get_building_coords_by_building_id(&building_id) {
+                self.building.remove(&coord);
+            }
+        }
+    }
 
     pub fn parcel_at(&self, x: i32, y: i32) -> Option<&Parcel> {
         self.parcels.iter().find(|p| p.cells.contains(&(x, y)))

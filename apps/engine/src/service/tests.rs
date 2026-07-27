@@ -137,6 +137,10 @@ async fn test_send_command_with_place_building_succeeds() {
 async fn test_send_command_with_remove_building_succeeds() {
     // 1. Initialization of a world and a test service
     let service = build_service();
+    service.world.lock().unwrap().park_map.set_building(0, 0, 0, BuildingId {
+        building_id: "building-1".into(),
+        template_id: "restaurant-1".into(),
+    });
 
     // 2. Creating a mock gRPC request
     let remove_building  = RemoveBuilding {
@@ -153,8 +157,10 @@ async fn test_send_command_with_remove_building_succeeds() {
     // 4. Assertions
     assert!(response.is_ok());
     let inner = response.unwrap().into_inner();
+    let world = service.world.lock().unwrap();
     assert!(inner.success);
     assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert!(world.park_map.get_building(0, 0, 0).is_none());
 }
 
 #[tokio::test]

@@ -99,9 +99,18 @@ impl SimulationService for SimulationEngineService {
                 };
                 action_type = "PlaceBuilding".to_string();
                 outcome
-                
             }
             Some(Command::RemoveBuilding(r)) => {
+                outcome =  match (r.position.as_ref()) {
+                    Some(origin) => {
+                        let result = world.park_map.can_remove_building(origin.x, origin.y, origin.z);
+                        if result.is_ok() {
+                            world.park_map.remove_building(origin.x, origin.y, origin.z);
+                        }    
+                        result
+                    }
+                    _ => Err(ErrorCode::ErrorEmpty)
+                };
                 action_type = "RemoveBuilding".to_string();
                 outcome
             }

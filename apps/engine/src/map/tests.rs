@@ -110,8 +110,10 @@ mod buildings {
         assert!(park_map.get_building(0, 0, 0).is_none());
 
         park_map.place_building(origin, &footprint, rotation, building_id);
-
-        assert_eq!(park_map.get_building_coords_by_building_id("building-1"),[(0,0,0), (0, -1,0), (-1,-1,0)])
+        
+        let mut coords = park_map.get_building_coords_by_building_id("building-1");
+        coords.sort();
+        assert_eq!(coords,[(-1,-1,0), (0,-1,0), (0,0,0)])
     }
 
     #[test]
@@ -120,6 +122,34 @@ mod buildings {
 
         let result = park_map.get_building_coords_by_building_id("non-existent");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_remove_building_on_empty_cell_does_nothing() {
+        let mut park_map = build_test_map();
+
+        park_map.remove_building(0, 0, 0);
+
+        assert!(park_map.get_building(0, 0, 0).is_none())
+    }
+
+    #[test]
+    fn test_remove_building_purges_full_footprint_from_any_cell() {
+        let mut park_map = build_test_map();
+        let origin = (0,0,0);
+        let footprint = [(0, 0), (0, 1), (1, 1)];
+        let building_id = BuildingId { building_id: "building-1".to_string(), template_id: "restaurant-1".to_string() };
+
+        park_map.place_building(origin, &footprint, Rotation::Deg0, building_id);
+        assert!(park_map.get_building(0, 0, 0).is_some());
+        assert!(park_map.get_building(0, 1, 0).is_some());
+        assert!(park_map.get_building(1, 1, 0).is_some());
+
+        park_map.remove_building(1, 1, 0);
+
+        assert!(park_map.get_building(0, 0, 0).is_none());
+        assert!(park_map.get_building(0, 1, 0).is_none());
+        assert!(park_map.get_building(1, 1, 0).is_none());
     }
     
 }
