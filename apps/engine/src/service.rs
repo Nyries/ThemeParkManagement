@@ -41,7 +41,6 @@ impl SimulationService for SimulationEngineService {
                     }
                 }
                 action_type = "ApplyTerrain".to_string();
-
                 
                 outcome
             },
@@ -67,19 +66,30 @@ impl SimulationService for SimulationEngineService {
                     }
                     Err(e) => Err(e),
                 };
+                action_type = "PlaceInfrastructure".to_string();
                 outcome
             }
             
             Some(Command::RemoveInfrastructure(r)) => {
+                let coords: Vec<(i32, i32, i32)> = r.coordinates.iter().map(|c| (c.x, c.y, c.z)).collect();
+                outcome = world.park_map.can_remove_infrastructure(&coords);
+                if outcome.is_ok() {
+                    for (x, y, z) in coords {
+                        world.park_map.remove_infrasture(x, y, z);
+                    }
+                }
+                action_type = "RemoveInfrastructure".to_string();
                 outcome
             }
             Some(Command::PlaceBuilding(p)) => {
                 // Validation of the command
                 // outcome = world.park_map.can_place_building(p.origin, footprint, rotation, template_id)
+                action_type = "PlaceBuilding".to_string();
                 outcome
                 
             }
             Some(Command::RemoveBuilding(r)) => {
+                action_type = "RemoveBuilding".to_string();
                 outcome
             }
             None => {

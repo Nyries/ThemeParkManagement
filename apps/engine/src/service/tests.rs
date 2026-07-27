@@ -1,10 +1,16 @@
 use super::*;
-use crate::{game::GameWorld, simulation::{ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure, RemoveBuilding, RemoveInfrastructure, Rotation}};
+use crate::{game::GameWorld, map::Parcel, simulation::{ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure, RemoveBuilding, RemoveInfrastructure, Rotation}};
 use std::sync::{Arc, Mutex};
 use tonic::Request;
 
 fn build_service() -> SimulationEngineService {
     let world = Arc::new(Mutex::new(GameWorld::new()));
+    world.lock().unwrap().park_map.parcels.push(Parcel {
+        id: "p1".into(),
+        cells: vec![(0, 0)],
+        unlocked: true,
+        price: 0,
+    });
     let (state_sender, _) = tokio::sync::broadcast::channel(16);
     SimulationEngineService { world, state_sender }
 }
@@ -30,8 +36,10 @@ async fn test_send_command_with_apply_terrain_succeeds() {
     // 4. Assertions
     assert!(response.is_ok());
     let inner = response.unwrap().into_inner();
+    let world = service.world.lock().unwrap();
     assert!(inner.success);
     assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert_eq!(world.park_map.get_terrain(0, 0, 0), Some(&"grass".to_string()))
 }
 
 #[tokio::test]
@@ -56,8 +64,11 @@ async fn test_send_command_with_place_infrastructure_succeeds() {
     // 4. Assertions
     assert!(response.is_ok());
     let inner = response.unwrap().into_inner();
+    let world = service.world.lock().unwrap();
     assert!(inner.success);
     assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert_eq!(world.park_map.get_infrastructure(0, 0, 0), Some(&InfrastructureShape::Path))
+    
 }
 
     #[tokio::test]
@@ -80,8 +91,10 @@ async fn test_send_command_with_remove_infrastructure_succeeds() {
     // 4. Assertions
     assert!(response.is_ok());
     let inner = response.unwrap().into_inner();
+    let world = service.world.lock().unwrap();
     assert!(inner.success);
     assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert!(world.park_map.get_infrastructure(0, 0, 0).is_none());
 }
 
 #[tokio::test]
