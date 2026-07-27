@@ -63,10 +63,10 @@ mod infrastructure {
 
         assert!(park_map.get_infrastructure(0, 0, 0).is_none());
 
-        park_map.set_infrastructure(0, 0, 0, InfrastructureKind::Path);
+        park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
         let infrastructure_kind = park_map.get_infrastructure(0, 0, 0).expect("The infrastructure should exist");
-        assert_eq!(infrastructure_kind, &InfrastructureKind::Path);
+        assert_eq!(infrastructure_kind, &InfrastructureShape::Path);
     }
 }
 
@@ -190,7 +190,7 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
 
         // to_z ignoré pour Path
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert!(result.is_ok());
     }
@@ -199,7 +199,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_out_of_bounds() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(5, 5, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(5, 5, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -208,7 +208,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_on_locked_parcel() {
         let park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2)); // pas de parcelle
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -218,7 +218,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_buildings(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCollision));
     }
@@ -228,7 +228,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_terrain(0, 0, 0, "water".into());
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -239,7 +239,7 @@ mod can_place_infrastructure {
         park_map.set_terrain(0, 0, 0, "water".into());
 
         // Pont = Path à z=+1 au-dessus de l'eau à z=0
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert!(result.is_ok());
     }
@@ -249,7 +249,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_buildings(0, 0, 0, BuildingId { building_id: "shop-1".into(), template_id: "shop".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -259,7 +259,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_buildings(0, 0, 0, BuildingId { building_id: "support-1".into(), template_id: "bridge_support".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert!(result.is_ok());
     }
@@ -268,7 +268,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_succeeds_for_ramp_to_adjacent_level() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
 
         assert!(result.is_ok());
     }
@@ -278,7 +278,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.unlocked_levels.insert(2);
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -288,7 +288,7 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
         // to_z = -1 est dans les bornes mais pas dans unlocked_levels
 
-        let result = park_map.can_place_infrastructure(InfrastructureKind::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(InfrastructureShape::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -300,7 +300,7 @@ mod can_remove_infrastructure {
     #[test]
     fn test_can_remove_infrastructure_succeeds_when_something_exists() {
         let mut park_map = build_test_map();
-        park_map.set_infrastructure(0, 0, 0, InfrastructureKind::Path);
+        park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
         assert!(park_map.can_remove_infrastructure(&[(0, 0, 0)]).is_ok());
     }

@@ -52,7 +52,7 @@ impl Bounds3d {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum InfrastructureKind {
+pub enum InfrastructureShape {
     Path,
     Ramp{to_z: i32},
     Stairs{to_z: i32}
@@ -69,7 +69,7 @@ pub struct ParkMap {
     pub map_id: String,
     pub bounds: Bounds3d,
     pub terrain: HashMap<(i32, i32, i32), String /*Material */ >,
-    pub infrastructure: HashMap<(i32, i32, i32), InfrastructureKind>,
+    pub infrastructure: HashMap<(i32, i32, i32), InfrastructureShape>,
     pub buildings: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
     pub unlocked_levels: HashSet<i32>,
@@ -100,11 +100,11 @@ impl ParkMap {
         self.terrain.get(&(x, y, z))
     }
 
-    pub fn set_infrastructure(&mut self, x: i32, y: i32, z: i32, infrastructure_kind: InfrastructureKind) {
+    pub fn set_infrastructure(&mut self, x: i32, y: i32, z: i32, infrastructure_kind: InfrastructureShape) {
         self.infrastructure.insert((x, y, z), infrastructure_kind);
     }
 
-    pub fn get_infrastructure(&self, x: i32, y: i32, z: i32) -> Option<&InfrastructureKind> {
+    pub fn get_infrastructure(&self, x: i32, y: i32, z: i32) -> Option<&InfrastructureShape> {
         self.infrastructure.get(&(x, y, z))
     }
 
@@ -147,7 +147,7 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_place_infrastructure(&self, kind: InfrastructureKind, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
+    pub fn can_place_infrastructure(&self, kind: InfrastructureShape, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
         for &(x, y,z) in coordinates {
             if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
                 return Err(ErrorCode::ErrorOutOfBounds);
@@ -175,7 +175,7 @@ impl ParkMap {
                     }
                 }
             }
-            if !matches!(kind, InfrastructureKind::Path) {
+            if !matches!(kind, InfrastructureShape::Path) {
                 if !self.is_level_available(to_z) {
                     return Err(ErrorCode::ErrorOutOfBounds);
                 }
