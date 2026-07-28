@@ -6,6 +6,32 @@ fn build_test_map() -> ParkMap {
     ParkMap::new(map_id, bounds_3d)
 }
 
+mod movement_cost_for_and_vertical {
+    use super::*;
+
+    #[test]
+    fn test_movement_cost_for_with_different_material_id() {
+        let mut result = movement_cost_for("path");
+        assert_eq!(result, 1);
+        result = movement_cost_for("ramp");
+        assert_eq!(result, 2);
+        result = movement_cost_for("grass");
+        assert_eq!(result, 5);
+        result = movement_cost_for("water");
+        assert_eq!(result, 10);
+    }
+    
+    #[test]
+    fn test_vertical_movement_cost_for_with_different_infrastructure() {
+        let mut result = vertical_movement_cost_for(&InfrastructureShape::Path);
+        assert_eq!(result, 0);
+        result = vertical_movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
+        assert_eq!(result, 1);
+        result = vertical_movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
+        assert_eq!(result, 2);
+    }
+}
+
 mod rotate_footprint {
     use super::*;
 

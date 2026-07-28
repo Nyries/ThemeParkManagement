@@ -3,6 +3,23 @@ use serde::{Serialize, Deserialize};
 
 use crate::simulation::{ErrorCode, Rotation};
 
+pub(crate) fn movement_cost_for(material_id: &str) -> u32 {
+    match material_id {
+        "path" => 1,
+        "stairs" | "ramp" => 2,
+        "grass" => 5,
+        _ => 10,
+    }
+}
+
+pub(crate) fn vertical_movement_cost_for(shape: &InfrastructureShape) -> u32 {
+    match shape {
+        InfrastructureShape::Ramp { .. } => 1,
+        InfrastructureShape::Stairs { .. } => 2,
+        InfrastructureShape::Path => 0,
+    }
+}
+
 fn crossing_flags_for(template_id: &str) -> (bool, bool) {
     // Allows above or allows below
     match template_id {
@@ -160,7 +177,7 @@ impl ParkMap {
         self.parcel_at(x, y).is_some_and(|p| p.unlocked)
     }
 
-    fn is_within_bounds(&self, x: i32, y: i32, z: i32) -> bool {
+    pub(crate) fn is_within_bounds(&self, x: i32, y: i32, z: i32) -> bool {
         x>= self.bounds.min_x && x <= self.bounds.max_x
         && y >= self.bounds.min_y && y <= self.bounds.max_y
         && z >= self.bounds.min_z && z <= self.bounds.max_z 
