@@ -24,7 +24,7 @@ mod successors {
 
         let mut expected = vec![
             ((1, 0, 0), 1), // "path" -> movement_cost_for = 1
-            ((0, 1, 0), 5), // "grass" -> movement_cost_for = 3
+            ((0, 1, 0), 5), // "grass" -> movement_cost_for = 5
         ];
         expected.sort();
 
@@ -97,7 +97,7 @@ mod find_path {
 
         assert_eq!(
             result,
-            Some((vec![(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)], 3))
+            Some((vec![(0, 0, 0), (3, 0, 0)], 3))
         );
     }
 
@@ -105,12 +105,11 @@ mod find_path {
     fn test_find_path_bypasses_unwalkable_obstacle() {
         let mut map = build_map();
 
-        // Ligne droite bloquée : (1,0,0) et (2,0,0) n'ont pas d'infrastructure
-        // (équivalent à de l'eau : aucune infra n'y a jamais pu être posée).
+        // Straight line blocked : (1,0,0) and (2,0,0) don't have infrastructure
         map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
         map.set_infrastructure(3, 0, 0, InfrastructureShape::Path);
 
-        // Détour par y=1
+        // Detour to y=1
         for x in 0..=3 {
             map.set_infrastructure(x, 1, 0, InfrastructureShape::Path);
         }
@@ -140,10 +139,137 @@ mod find_path {
     fn test_find_path_returns_none_without_panic_when_target_is_unreachable() {
         let mut map = build_map();
         map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-        // (5,5,0) reste isolé : aucune infrastructure ne mène jusque-là
 
         let result = map.find_path((0, 0, 0), (5, 5, 0));
 
         assert_eq!(result, None);
+    }
+}
+
+mod bresenham_line {
+    use super::*;
+
+    #[test]
+    fn test_bresenham_line() {
+        let (x0, y0, x1, y1) = (0, 0, 4, 1);
+        
+        let result = ParkMap::bresenham_line(x0, y0, x1, y1);
+
+        assert_eq!(result, [(0,0), (1,0), (2,1), (3,1), (4,1)]);
+    }
+}
+
+mod has_line_of_sight {
+    use super::*;
+
+    #[test]
+    fn test_true_when_all_cells_on_the_line_are_walkable() {
+        let mut map = build_map();
+        for x in 0..=3 {
+            map.set_infrastructure(x, 0, 0, InfrastructureShape::Path);
+        }
+
+        assert!(map.has_line_of_sight((0, 0, 0), (3, 0, 0)));
+    }
+
+    #[test]
+    fn test_false_when_a_cell_on_the_line_is_not_walkable() {
+        let mut map = build_map();
+        map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        // (1,0,0) volontairement laissée sans infrastructure
+        map.set_infrastructure(2, 0, 0, InfrastructureShape::Path);
+        map.set_infrastructure(3, 0, 0, InfrastructureShape::Path);
+
+        assert!(!map.has_line_of_sight((0, 0, 0), (3, 0, 0)));
+    }
+
+    #[test]
+    fn test_false_when_points_are_on_different_levels() {
+        let mut map = build_map();
+        map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        map.set_infrastructure(0, 0, 1, InfrastructureShape::Path);
+
+        assert!(!map.has_line_of_sight((0, 0, 0), (0, 0, 1)));
+    }
+
+    #[test]
+    fn test_true_when_origin_equals_target() {
+        let mut map = build_map();
+        map.set_infrastructure(2, 2, 0, InfrastructureShape::Path);
+
+        assert!(map.has_line_of_sight((2, 2, 0), (2, 2, 0)));
+    }
+}
+
+mod simplify_line_of_sight {
+    use super::*;
+
+    #[test]
+    fn test_removes_useless_intermediate_points_on_a_straight_corridor() {
+        let mut map = build_map();
+        for x in 0..=3 {
+            map.set_infrastructure(x, 0, 0, InfrastructureShape::Path);
+        }
+        let raw_path = vec![(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)];
+
+        let result = map.simplify_line_of_sight(raw_path);
+
+        assert_eq!(result, vec![(0, 0, 0), (3, 0, 0)]);
+    }
+
+    #[test]
+    fn test_keeps_the_corner_point_on_an_l_shaped_path() {
+        let mut map = build_map();
+        // Chemin en L : (0,0,0) -> (2,0,0) -> (2,2,0)
+        for x in 0..=2 {
+            map.set_infrastructure(x, 0, 0, InfrastructureShape::Path);
+        }
+        for y in 0..=2 {
+            map.set_infrastructure(2, y, 0, InfrastructureShape::Path);
+        }
+        let raw_path = vec![(0, 0, 0), (1, 0, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)];
+
+        let result = map.simplify_line_of_sight(raw_path);
+
+        assert_eq!(result, vec![(0, 0, 0), (2, 0, 0), (2, 2, 0)]);
+    }
+
+    #[test]
+    fn test_never_cuts_through_a_blocked_cell() {
+        let mut map = build_map();
+        // U turn : (1,0,0)/(2,0,0), are not walkable here.
+        map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        map.set_infrastructure(3, 0, 0, InfrastructureShape::Path);
+        for x in 0..=3 {
+            map.set_infrastructure(x, 1, 0, InfrastructureShape::Path);
+        }
+        let raw_path = vec![
+            (0, 0, 0), (0, 1, 0), (1, 1, 0), (2, 1, 0), (3, 1, 0), (3, 0, 0),
+        ];
+
+        let result = map.simplify_line_of_sight(raw_path);
+
+        assert!(!result.contains(&(1, 0, 0)));
+        assert!(!result.contains(&(2, 0, 0)));
+        assert_eq!(result.first(), Some(&(0, 0, 0)));
+        assert_eq!(result.last(), Some(&(3, 0, 0)));
+    }
+
+    #[test]
+    fn test_empty_path_returns_empty() {
+        let map = build_map();
+
+        let result = map.simplify_line_of_sight(vec![]);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_single_point_path_returns_same_point() {
+        let map = build_map();
+
+        let result = map.simplify_line_of_sight(vec![(1, 1, 0)]);
+
+        assert_eq!(result, vec![(1, 1, 0)]);
     }
 }
