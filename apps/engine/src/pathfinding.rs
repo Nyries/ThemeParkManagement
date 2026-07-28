@@ -38,6 +38,20 @@ impl ParkMap {
         result
     }
 
+    fn heuristic(&(x,y,z): &(i32,i32,i32), target: (i32,i32,i32)) -> u32 {
+        ((x- target.0).abs() + (y - target.1).abs() + (z - target.2).abs()) as u32
+
+    }
+
+    pub fn find_path(&self, start: (i32, i32, i32), target: (i32, i32, i32)) -> Option<(Vec<(i32,i32,i32)>, u32)> {
+        pathfinding::prelude::astar(
+            &start, 
+            |node| self.successors(node), 
+            |node| Self::heuristic(node, target), 
+            |&node| node == target
+        )
+    }
+
 }
 
 #[cfg(test)]
