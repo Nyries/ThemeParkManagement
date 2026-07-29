@@ -2,6 +2,7 @@ mod map;
 mod game;
 mod service;
 mod pathfinding;
+mod map_template;
 
 use game::GameWorld;
 use service::SimulationEngineService;

@@ -1,6 +1,8 @@
 use serde::Deserialize;
 
-#[dervice(Debug)]
+use crate::map::ParkMap;
+
+#[derive(Debug)]
 pub enum MapLoadError {
     InvalidJson(String),
     OutOfBounds { x: i32, y: i32, z: i32},
@@ -40,7 +42,7 @@ pub struct BuildingEntry {
 pub struct Coord { pub x: i32, pub y: i32, pub z: i32 }
 
 #[derive(Deserialize)] 
-pub struct map_template {
+pub struct MapTemplate {
     pub archetype: String,
     pub name: String,
     pub dimensions: Dimensions,
@@ -49,4 +51,15 @@ pub struct map_template {
     pub infrastructure: Vec<InfrastructureEntry>,
     pub buildings: Vec<BuildingEntry>,
     pub entrance: Coord,
+}
+
+impl MapTemplate {
+    pub fn load(path: &std::path::Path) -> Result<MapTemplate, MapLoadError> {
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| MapLoadError::InvalidJson(e.to_string()))?;
+        serde_json::from_str(&raw) 
+            .map_err(|e| MapLoadError::InvalidJson(e.to_string()))
+    }
+
+
 }
