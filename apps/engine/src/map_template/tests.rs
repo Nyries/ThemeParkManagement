@@ -249,3 +249,19 @@ mod into_park_map {
         assert!(matches!(result, Err(MapLoadError::InvalidJson(_))));
     }
 }
+
+mod first_map_fixture {
+    use super::*;
+
+    #[test]
+    fn test_first_map_json_loads_into_valid_park_map() {
+        let template = MapTemplate::load(MapSource::Embedded(include_str!("../../assets/maps/first-map.json")))
+            .expect("first-map.json should parse");
+
+        let park_map = template.into_park_map()
+            .expect("first-map.json should build a valid ParkMap");
+
+        assert_eq!(park_map.entrance, Some((1, 1, 0)));
+        assert!(park_map.get_infrastructure(1, 1, 0).is_some());
+    }
+}
