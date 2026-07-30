@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::map::{Bounds3d, BuildingId, InfrastructureShape, Parcel, ParkMap};
 
@@ -16,6 +15,14 @@ pub enum MapLoadError {
     UnknownMaterial(String),
     InvalidEntrance,
 }
+
+impl std::fmt::Display for MapLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for MapLoadError {}
 
 #[derive(Deserialize)] 
 pub struct Dimensions {

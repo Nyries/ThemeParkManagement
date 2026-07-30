@@ -1,28 +1,25 @@
-mod map;
-mod game;
-mod service;
-mod pathfinding;
-mod map_template;
+use engine::game::GameWorld;
+use engine::service::SimulationEngineService;
+use engine::map_template::{MapSource, MapTemplate};
+use engine::simulation::simulation_service_server::SimulationServiceServer;
+use engine::simulation::WorldStateResponse;
 
-use game::GameWorld;
-use service::SimulationEngineService;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tonic::transport::Server;
 
-pub mod simulation {
-    tonic::include_proto!("simulation");
-}
-
-use simulation::simulation_service_server::SimulationServiceServer;
-use simulation::WorldStateResponse;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting the simulation engine!");
 
-    let world = Arc::new(Mutex::new(GameWorld::new()));
+    // Loading park_map
+    let template = MapTemplate::load(MapSource::Embedded(include_str!("../assets/maps/first-map.json")))?;
+    let park_map = template.into_park_map()?;
+
+    let mut world = GameWorld::new();
+    world.park_map = park_map;
+    let world = Arc::new(Mutex::new(world));
 
     let (state_sender, _) = tokio::sync::broadcast::channel(100);
 
