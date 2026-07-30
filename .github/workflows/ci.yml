@@ -19,14 +19,31 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with: 
+          components: clippy
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "engine"
+
+      - name: Run Clippy (quality gate)
+        run: cargo clippy --all-targets --manifest-path apps/engine/Cargo.toml -- -D warnings
       
       - name: Run Rust tests
         run: cargo test --manifest-path apps/engine/Cargo.toml
+        
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage (quality gate)
+        run: cargo llvm-cov --manifest-path apps/engine/Cargo.toml --ignore-filename-regex 'main\.rs$' --fail-under-lines 90 --lcov --output-path lcov.info
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-coverage
+          path: apps/engine/lcov.info
 
   test-gateway:
     name: Test Gateway 
@@ -51,8 +68,17 @@ jobs:
       - name: Generate shared proto types
         run: pnpm --filter @app/shared-types run proto:gen
 
-      - name: Run Gateway tests
-        run: pnpm --filter gateway test
+      - name: Run ESLint (quality gate)
+        run: pnpm --filter gateway lint --max-warnings 0
+
+      - name: Run Gateway tests with coverage (quality gate)
+        run: pnpm --filter gateway coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-coverage
+          path: apps/gateway/coverage/
 
   # build-front:
   #   name: Build Front

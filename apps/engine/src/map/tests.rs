@@ -70,7 +70,7 @@ mod footprint_for {
     #[test]
     fn test_footprint_for_stub() {
         let template_id = "";
-        let result = footprint_for(&template_id);
+        let result = footprint_for(template_id);
         assert_eq!(result,[(0,0), (0,1), (1,1)]);
     }
 }

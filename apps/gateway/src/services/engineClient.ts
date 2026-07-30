@@ -110,7 +110,7 @@ export function sendRemoveBuilding(
 export function subscribeToEngineStream(
   parkId: string,
   onTick: (state: WorldStateResponse) => void,
-  onError: (err: any) => void,
+  onError: (err: grpc.ServiceError) => void,
 ) {
   const call = engineClient.streamState({ parkId: parkId });
 
@@ -118,7 +118,7 @@ export function subscribeToEngineStream(
     onTick(response);
   });
 
-  call.on("error", (error: any) => {
+  call.on("error", (error: grpc.ServiceError) => {
     onError(error);
   });
 
