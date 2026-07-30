@@ -39,9 +39,8 @@ fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i
 
 pub(crate) fn footprint_for(template_id: &str) -> Vec<(i32, i32)> {
     //TODO: create the JSON sparser from catalog
-    match template_id {
-        _ => [(0,0), (0,1), (1,1)].to_vec()
-    }
+    let _ = template_id;
+    [(0,0), (0,1), (1,1)].to_vec()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -213,21 +212,15 @@ impl ParkMap {
             if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
-            if z==0 {
-                if let Some(material) = self.get_terrain(x, y, z) {
-                    if material == "water" {
-                        // Add other material_id maybe with an inside field
-                        return Err(ErrorCode::ErrorCrossingNotAllowed);
-                    }
-                }
+            if z==0 && let Some(material) = self.get_terrain(x, y, z) && material == "water" {
+                // Add other material_id maybe with an inside field
+                return Err(ErrorCode::ErrorCrossingNotAllowed);
             }
-            if z == 1 || z == -1 {
-                if let Some(building) = self.get_building(x, y, 0) {
-                    let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
-                    let allowed = if z == 1 { allows_above } else { allows_below };
-                    if !allowed {
-                        return Err(ErrorCode::ErrorCrossingNotAllowed);
-                    }
+            if (z == 1 || z == -1) && let Some(building) = self.get_building(x, y, 0) {
+                let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
+                let allowed = if z == 1 { allows_above } else { allows_below };
+                if !allowed {
+                    return Err(ErrorCode::ErrorCrossingNotAllowed);
                 }
             }
             if !matches!(kind, InfrastructureShape::Path) {
@@ -270,11 +263,9 @@ impl ParkMap {
             if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
-            if let Some(material) = self.get_terrain(x, y, z) {
-                if material == "water" {
-                    //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
-                    return Err(ErrorCode::ErrorCollision);
-                }
+            if let Some(material) = self.get_terrain(x, y, z) && material == "water" {
+                //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
+                return Err(ErrorCode::ErrorCollision);
             }
         }
         Ok(())

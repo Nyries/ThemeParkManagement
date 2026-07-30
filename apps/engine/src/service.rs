@@ -138,7 +138,7 @@ impl SimulationService for SimulationEngineService {
                 error_code: ErrorCode::ErrorEmpty.into(),
                 message: "No command given".into()
             }));
-        } else if req.park_id == "" {
+        } else if req.park_id.is_empty() {
             return Ok(Response::new(CommandResponse {
                 success: false,
                 error_code: ErrorCode::ErrorEmpty.into(),

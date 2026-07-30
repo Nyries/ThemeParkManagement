@@ -5,6 +5,12 @@ pub struct GameWorld {
     pub tick_count: u64,
 }
 
+impl Default for GameWorld {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameWorld {
     pub fn new() -> Self {
         Self { 

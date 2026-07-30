@@ -1,5 +1,6 @@
 use crate::map::{InfrastructureShape, ParkMap, movement_cost_for, vertical_movement_cost_for};
 
+pub type PathResult = (Vec<(i32, i32, i32)>, u32);
 
 impl ParkMap {
 
@@ -34,10 +35,9 @@ impl ParkMap {
 
         if let Some(shape @ (InfrastructureShape::Ramp { to_z } | InfrastructureShape::Stairs { to_z })) =
             self.get_infrastructure(x, y, z) 
+            && self.is_within_bounds(x, y, *to_z) 
         {
-            if self.is_within_bounds(x, y, *to_z) {
-                result.push(((x,y,*to_z), vertical_movement_cost_for(shape)));
-            }
+            result.push(((x,y,*to_z), vertical_movement_cost_for(shape)));
         }
         result
     }
@@ -100,7 +100,7 @@ impl ParkMap {
         simplified        
     }
     
-    pub fn find_path(&self, start: (i32, i32, i32), target: (i32, i32, i32)) -> Option<(Vec<(i32,i32,i32)>, u32)> {
+    pub fn find_path(&self, start: (i32, i32, i32), target: (i32, i32, i32)) -> Option<PathResult> {
         let (raw_path, cost) = pathfinding::prelude::astar(
             &start, 
             |node| self.successors(node), 
