@@ -32,6 +32,18 @@ jobs:
       
       - name: Run Rust tests
         run: cargo test --manifest-path apps/engine/Cargo.toml
+        
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage (quality gate)
+        run: cargo llvm-cov --manifest-path apps/engine/Cargo.toml --ignore-filename-regex 'main\.rs$' --fail-under-lines 90 --lcov --output-path lcov.info
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-coverage
+          path: apps/engine/lcov.info
 
   test-gateway:
     name: Test Gateway 
