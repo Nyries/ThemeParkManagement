@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import {
   generateMockInfrastructure,
   generateMockTerrain,
+  HEIGHT as GRID_HEIGHT
 } from "../mocks/mockMap";
 import { Application, Graphics, Text } from "pixi.js";
-import { CANVAS_HEIGHT, CANVAS_WIDTH, CELL_SIZE, getCellColor, GRID_HEIGHT, toScreenX, toScreenY } from "../rendering/gird";
+import { CANVAS_HEIGHT, CANVAS_WIDTH, CELL_SIZE, getCellColor, toScreenX, toScreenY } from "../rendering/grid";
 
 export function ParkCanvas() {
   const terrain = generateMockTerrain();
