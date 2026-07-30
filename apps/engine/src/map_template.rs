@@ -1,6 +1,12 @@
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::map::{Bounds3d, BuildingId, InfrastructureShape, Parcel, ParkMap};
+
+pub enum MapSource {
+    Embedded(&'static str),
+    File(std::path::PathBuf),
+}
 
 #[derive(Debug)]
 pub enum MapLoadError {
@@ -83,9 +89,12 @@ pub struct MapTemplate {
 
 impl MapTemplate {
     
-    pub fn load(path: &std::path::Path) -> Result<MapTemplate, MapLoadError> {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| MapLoadError::InvalidJson(e.to_string()))?;
+    pub fn load(source: MapSource) -> Result<MapTemplate, MapLoadError> {
+        let raw = match source {
+            MapSource::Embedded(json) => json.to_string(),
+            MapSource::File(path) => std::fs::read_to_string(&path)
+                .map_err(|e| MapLoadError::InvalidJson(e.to_string()))?,
+        };
         serde_json::from_str(&raw) 
             .map_err(|e| MapLoadError::InvalidJson(e.to_string()))
     }

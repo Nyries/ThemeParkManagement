@@ -49,6 +49,18 @@ mod parse_infrastructure_kind {
 mod load {
     use super::*;
 
+    const VALID_JSON: &str = r#"{
+        "archetype": "test",
+        "name": "Test",
+        "dimensions": { "width": 2, "height": 2, "levels": [0] },
+        "default_terrain": "grass",
+        "terrain": [],
+        "infrastructure": [],
+        "buildings": [],
+        "parcels": [],
+        "entrance": { "x": 0, "y": 0, "z": 0 }
+    }"#;
+
     fn write_temp_json(content: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("map_template_test_{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, content).unwrap();
@@ -56,35 +68,40 @@ mod load {
     }
 
     #[test]
-    fn test_load_valid_json_succeeds() {
-        let json = r#"{
-            "archetype": "test",
-            "name": "Test",
-            "dimensions": { "width": 2, "height": 2, "levels": [0] },
-            "default_terrain": "grass",
-            "terrain": [],
-            "infrastructure": [],
-            "buildings": [],
-            "parcels": [],
-            "entrance": { "x": 0, "y": 0, "z": 0 }
-        }"#;
-        let path = write_temp_json(json);
-
-        let result = MapTemplate::load(&path);
+    fn test_load_embedded_valid_json_succeeds() {
+        let result = MapTemplate::load(MapSource::Embedded(VALID_JSON));
 
         assert!(result.is_ok());
         let template = result.unwrap();
         assert_eq!(template.archetype, "test");
         assert_eq!(template.dimensions.width, 2);
+    }
+
+    #[test]
+    fn test_load_embedded_malformed_json_fails() {
+        let result = MapTemplate::load(MapSource::Embedded("{ not valid json"));
+
+        assert!(matches!(result, Err(MapLoadError::InvalidJson(_))));
+    }
+
+    #[test]
+    fn test_load_file_valid_json_succeeds() {
+        let path = write_temp_json(VALID_JSON);
+
+        let result = MapTemplate::load(MapSource::File(path.clone()));
+
+        assert!(result.is_ok());
+        let template = result.unwrap();
+        assert_eq!(template.archetype, "test");
 
         std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
-    fn test_load_malformed_json_fails() {
+    fn test_load_file_malformed_json_fails() {
         let path = write_temp_json("{ not valid json");
 
-        let result = MapTemplate::load(&path);
+        let result = MapTemplate::load(MapSource::File(path.clone()));
 
         assert!(matches!(result, Err(MapLoadError::InvalidJson(_))));
 
@@ -92,10 +109,10 @@ mod load {
     }
 
     #[test]
-    fn test_load_missing_file_fails() {
+    fn test_load_file_missing_fails() {
         let path = std::env::temp_dir().join("this_file_does_not_exist_12345.json");
 
-        let result = MapTemplate::load(&path);
+        let result = MapTemplate::load(MapSource::File(path));
 
         assert!(matches!(result, Err(MapLoadError::InvalidJson(_))));
     }
