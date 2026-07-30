@@ -2,47 +2,9 @@ import { useEffect, useRef } from "react";
 import {
   generateMockInfrastructure,
   generateMockTerrain,
-  type InfrastructureKind,
-  type TerrainMaterial,
 } from "../mocks/mockMap";
 import { Application, Graphics, Text } from "pixi.js";
-
-const CELL_SIZE = 16;
-const MARGIN_SIZE = 20;
-
-const GRID_WIDTH = 50;
-const GRID_HEIGHT = 30;
-
-const CANVAS_WIDTH = MARGIN_SIZE + GRID_WIDTH * CELL_SIZE;
-const CANVAS_HEIGHT = MARGIN_SIZE + GRID_HEIGHT * CELL_SIZE;
-
-const TERRAIN_COLORS: Record<TerrainMaterial, number> = {
-  grass: 0x4caf50,
-  water: 0x2196f3,
-};
-
-const INFRASTRUCTURE_COLORS: Record<InfrastructureKind, number> = {
-  path: 0xd7b98e,
-  ramp: 0xd7b98e,
-  stairs: 0xd7b98e,
-};
-
-function toScreenY(y: number): number {
-  return (GRID_HEIGHT - 1 - y) * CELL_SIZE;
-}
-
-function getCellColor(
-  x: number,
-  y: number,
-  terrain: TerrainMaterial[][],
-  infrastructure: (InfrastructureKind | null)[][],
-): number {
-  const infra = infrastructure[y][x];
-  if (infra !== null) {
-    return INFRASTRUCTURE_COLORS[infra];
-  }
-  return TERRAIN_COLORS[terrain[y][x]];
-}
+import { CANVAS_HEIGHT, CANVAS_WIDTH, CELL_SIZE, getCellColor, GRID_HEIGHT, toScreenX, toScreenY } from "../rendering/gird";
 
 export function ParkCanvas() {
   const terrain = generateMockTerrain();
@@ -71,13 +33,13 @@ export function ParkCanvas() {
             const color = getCellColor(x, y, terrain, infrastructure);
             const cell = new Graphics()
               .rect(
-                x * CELL_SIZE + MARGIN_SIZE,
+                toScreenX(x),
                 toScreenY(y),
                 CELL_SIZE,
                 CELL_SIZE,
               )
               .fill(color)
-              .stroke({ width: 1, color: 0x000000, alpha: 0.3 });
+              .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
             app.stage.addChild(cell);
           }
         }
@@ -86,7 +48,7 @@ export function ParkCanvas() {
             text: String(x),
             style: { fontSize: 10, fill: 0xffffff },
           });
-          label.x = MARGIN_SIZE + x * CELL_SIZE;
+          label.x = toScreenX(x);
           label.y = GRID_HEIGHT * CELL_SIZE;
           app.stage.addChild(label);
         }
