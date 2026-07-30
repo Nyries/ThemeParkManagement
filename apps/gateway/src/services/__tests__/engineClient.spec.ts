@@ -129,7 +129,7 @@ describe('EngineClient Service', () => {
   describe('subscribeToEngineStream', () => {
     it('forwards stream data to onTick and listens for stream errors', () => {
       const mockCall = {
-        on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
           if (event === 'data') handler({ tickCount: '42', dirtyChunksJson: '{}' });
           return mockCall;
         }),
