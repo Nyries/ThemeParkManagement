@@ -97,6 +97,7 @@ pub struct ParkMap {
     pub building: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
     pub unlocked_levels: HashSet<i32>,
+    pub entrance: Option<(i32, i32, i32)>,
 }
 
 impl ParkMap {
@@ -112,7 +113,8 @@ impl ParkMap {
             infrastructure: HashMap::new(),
             building: HashMap::new(),
             parcels: Vec::new(),
-            unlocked_levels
+            unlocked_levels,
+            entrance: None,
         }
     }
 
