@@ -55,9 +55,9 @@ jobs:
 
       - name: Generate shared proto types
         run: pnpm --filter @app/shared-types run proto:gen
-        
+
       - name: Run ESLint (quality gate)
-        run: pnpm --filter gateway lint -- --max-warnings 0
+        run: pnpm --filter gateway lint --max-warnings 0
 
 
       - name: Run Gateway tests
