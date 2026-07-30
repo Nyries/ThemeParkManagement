@@ -72,7 +72,7 @@ jobs:
         run: pnpm --filter gateway lint --max-warnings 0
 
       - name: Run Gateway tests with coverage (quality gate)
-        run: pnpm --filter gateway vitest run --coverage
+        run: pnpm --filter gateway coverage
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
