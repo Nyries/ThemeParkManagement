@@ -1,13 +1,8 @@
-import './App.css'
-import { ParkCanvas } from './components/ParkCanvas'
+import "./App.css";
+import { ParkCanvas } from "./components/ParkCanvas";
 
 function App() {
-
-  return (
-    <>
-      <ParkCanvas />
-    </>
-  )
+  return <ParkCanvas />;
 }
 
-export default App
+export default App;

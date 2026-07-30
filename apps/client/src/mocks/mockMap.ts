@@ -8,6 +8,7 @@ export function generateMockTerrain(): TerrainMaterial[][] {
   const matrix: TerrainMaterial[][] = Array.from({ length: HEIGHT }, () =>
     Array.from({ length: WIDTH }, () => "grass" as TerrainMaterial),
   );
+  matrix[0][0] = "water";
   matrix[10][20] = "water";
   matrix[10][21] = "water";
   matrix[11][20] = "water";
