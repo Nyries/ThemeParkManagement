@@ -1,5 +1,6 @@
 pub mod map;
 pub mod game;
+pub mod visitor;
 pub mod service;
 pub mod pathfinding;
 pub mod map_template;
