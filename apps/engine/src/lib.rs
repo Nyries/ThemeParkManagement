@@ -4,6 +4,7 @@ pub mod visitor;
 pub mod service;
 pub mod pathfinding;
 pub mod map_template;
+pub mod balance;
 
 pub mod simulation {
     tonic::include_proto!("simulation");

@@ -1,3 +1,5 @@
+use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION};
+
 pub type VisitorId = String;
 
 pub struct Visitor {
@@ -11,7 +13,7 @@ fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
     let dx = b.0 - a.0;
     let dy = b.1 - a.1;
     let dz = b.2 - a.2;
-    return (dx * dx + dy * dy + dz * dz).sqrt();
+    (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
 fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
@@ -23,19 +25,17 @@ fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
 }
 
 pub fn speed_at(base_speed: f32, density: usize) -> f32 {
-    let f = (1.0 - density as f32 / 5.0).max(0.0);
+    let f = (1.0 - density as f32 / DENSITY_CAP as f32).max(0.0);
     base_speed * f
 }
 
 pub fn repulsion_force(my_position: (f32, f32, f32), neighbor_position: (f32, f32, f32)) -> (f32, f32, f32) {
-    let k_repulsion = 0.2; // to caliber
-    let avoiding_radius = 0.2;
     let d = distance(my_position, neighbor_position);
-    if d >= avoiding_radius {
+    if d >= AVOIDING_RADIUS {
         return (0.0, 0.0, 0.0);
     }
     let (dx, dy, dz) = direction(neighbor_position, my_position);
-    let intensity = k_repulsion * (avoiding_radius - d) / avoiding_radius;
+    let intensity = K_REPULSION * (AVOIDING_RADIUS - d) / AVOIDING_RADIUS;
     (intensity * dx, intensity * dy, intensity * dz)
 }
 
