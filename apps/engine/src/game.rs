@@ -37,21 +37,27 @@ impl GameWorld {
     }
 
     pub fn spawn_visitor(&mut self) {
-        let Some((ex, ey, ez)) = self.park_map.entrance else {
+        let Some(entrance) = self.park_map.entrance else {
             return;
         };
+
+        let target = self.park_map.random_walkable_cell(entrance).unwrap_or(entrance);
+        let path = self.park_map
+            .find_path(entrance, target)
+            .map(|(path, _cost)| path)
+            .unwrap_or_default();
 
         let id = uuid::Uuid::new_v4().to_string();
 
         self.visitors.push(Visitor { 
             id: id.clone(), 
-            position: (ex as f32, ey as f32, ez as f32), 
-            path: vec![], 
-            target: (ex, ey, ez) 
+            position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32), 
+            path,
+            target
         });
 
         self.density
-            .entry((ex, ey, ez))
+            .entry(entrance)
             .or_insert_with(Vec::new)
             .push(id);
     } 
@@ -60,6 +66,7 @@ impl GameWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::map::InfrastructureShape;
 
     #[test]
     fn test_game_world_initialization() {
@@ -93,18 +100,34 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_visitor_adds_visitor_at_entrance() {
+    fn test_spawn_visitor_falls_back_to_entrance_when_no_other_cell_is_walkable() {
         let mut world = GameWorld::new();
         world.park_map.entrance = Some((5, 3, 0));
+        // aucune infrastructure posée : random_walkable_cell ne trouve rien d'autre
 
         world.spawn_visitor();
 
-        assert_eq!(world.visitors.len(), 1);
         let visitor = &world.visitors[0];
         assert_eq!(visitor.position, (5.0, 3.0, 0.0));
         assert_eq!(visitor.target, (5, 3, 0));
-        assert!(visitor.path.is_empty());
+        assert_eq!(visitor.path, vec![(5, 3, 0)]);
     }
+
+    #[test]
+    fn test_spawn_visitor_computes_target_and_path_when_another_cell_is_walkable() {
+        let mut world = GameWorld::new();
+        world.park_map.entrance = Some((0, 0, 0));
+        world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+        world.spawn_visitor();
+
+        let visitor = &world.visitors[0];
+        assert_eq!(visitor.position, (0.0, 0.0, 0.0));
+        assert_eq!(visitor.target, (1, 0, 0)); // seul autre candidat possible, déterministe
+        assert_eq!(visitor.path, vec![(0, 0, 0), (1, 0, 0)]);
+    }
+
 
     #[test]
     fn test_spawn_visitor_updates_density_at_entrance() {

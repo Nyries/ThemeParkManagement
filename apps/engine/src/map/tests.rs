@@ -111,6 +111,40 @@ mod infrastructure {
     }
 }
 
+mod random_walkable_cell {
+    use super::*;
+
+    #[test]
+    fn test_returns_a_different_cell_when_several_are_walkable() {
+        let mut map = build_test_map();
+        map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+        let result = map.random_walkable_cell((0, 0, 0));
+
+        assert_eq!(result, Some((1, 0, 0)));
+    }
+
+    #[test]
+    fn test_falls_back_to_excluded_cell_when_it_is_the_only_walkable_one() {
+        let mut map = build_test_map();
+        map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+
+        let result = map.random_walkable_cell((0, 0, 0));
+
+        assert_eq!(result, Some((0, 0, 0)));
+    }
+
+    #[test]
+    fn test_returns_none_when_no_cell_is_walkable() {
+        let map = build_test_map();
+
+        let result = map.random_walkable_cell((0, 0, 0));
+
+        assert_eq!(result, None);
+    }
+}
+
 mod buildings {
     use super::*;
 

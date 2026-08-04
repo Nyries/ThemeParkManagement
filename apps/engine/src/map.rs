@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use rand::seq::IteratorRandom;
 use serde::{Serialize, Deserialize};
 
 use crate::simulation::{ErrorCode, Rotation};
@@ -136,6 +137,15 @@ impl ParkMap {
     pub fn get_infrastructure(&self, x: i32, y: i32, z: i32) -> Option<&InfrastructureShape> {
         self.infrastructure.get(&(x, y, z))
     }
+
+    pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
+        let mut rng = rand::thread_rng();
+        self.infrastructure.keys()
+            .filter(|&&cell| cell != exclude)
+            .choose(&mut rng)
+            .copied()
+            .or(if self.infrastructure.is_empty() { None } else { Some(exclude) })
+        }
 
     pub fn set_building(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
         self.building.insert((x, y, z), building_id);
