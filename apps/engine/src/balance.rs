@@ -10,4 +10,7 @@ pub const VISIT_DURATION_TICKS: u64 = 1000;
 
 pub const TICK_INTERVAL: f32 = 0.05; // seconds
 
+// Closer to 1 makes a turn almost instantaneous; 0 is a very progressive turn
+pub const STEERING_FACTOR: f32 = 0.3;
+
 // Calibrated

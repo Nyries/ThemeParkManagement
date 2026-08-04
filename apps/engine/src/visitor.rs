@@ -1,4 +1,4 @@
-use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, VISIT_DURATION_TICKS};
+use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, STEERING_FACTOR, VISIT_DURATION_TICKS};
 
 pub type VisitorId = String;
 
@@ -8,6 +8,7 @@ pub struct Visitor {
     pub path: Vec<(i32, i32, i32)>,
     pub target: (i32, i32, i32),
     pub ticks_since_spawn: u64,
+    pub heading: (f32, f32, f32),
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -23,6 +24,23 @@ fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
         return (0.0, 0.0, 0.0);
     }
     ((to.0 - from.0) / d, (to.1 - from.1) / d, (to.2 - from.2) / d)
+}
+
+fn normalize(v: (f32, f32, f32)) -> (f32, f32, f32) {
+    let len = (v.0 * v.0 + v.1 * v.1 + v.2 * v.2).sqrt();
+    if len == 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    (v.0 / len, v.1 / len, v.2 / len)
+}
+
+fn lerp_direction(current: (f32, f32, f32), desired: (f32, f32, f32), factor: f32) -> (f32, f32, f32) {
+    let blended = (
+        current.0 + (desired.0 - current.0) * factor,
+        current.1 + (desired.1 - current.1) * factor,
+        current.2 + (desired.2 - current.2) * factor,
+    );
+    normalize(blended)
 }
 
 pub fn speed_at(base_speed: f32, density: usize) -> f32 {
@@ -52,6 +70,14 @@ impl Visitor {
         };
         let next_f = (next.0 as f32, next.1 as f32, next.2 as f32);
         let dist_to_next = distance(self.position, next_f);
+        let desired = direction(self.position, next_f);
+
+        self.heading = if self.heading == (0.0, 0.0, 0.0) {
+            desired
+        } else {
+            lerp_direction(self.heading, desired, STEERING_FACTOR)
+        };
+
         let step = speed * dt;
     
         if step >= dist_to_next {
@@ -145,125 +171,198 @@ mod tests {
         assert_close(force, (0.0, 0.0, 0.0));
     }
 
-    #[test]
-    fn test_has_expired_is_false_before_visit_duration() {
-        let visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![],
-            target: (0, 0, 0),
-            ticks_since_spawn: VISIT_DURATION_TICKS - 1,
-        };
+    mod has_expired {
+        use super::*;
 
-        assert!(!visitor.has_expired());
+        #[test]
+        fn test_has_expired_is_false_before_visit_duration() {
+            let visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: VISIT_DURATION_TICKS - 1,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            assert!(!visitor.has_expired());
+        }
+    
+        #[test]
+        fn test_has_expired_is_true_exactly_at_visit_duration() {
+            let visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: VISIT_DURATION_TICKS,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            assert!(visitor.has_expired());
+        }
+    
+        #[test]
+        fn test_has_expired_is_true_after_visit_duration() {
+            let visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: VISIT_DURATION_TICKS + 500,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            assert!(visitor.has_expired());
+        }
     }
 
-    #[test]
-    fn test_has_expired_is_true_exactly_at_visit_duration() {
-        let visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![],
-            target: (0, 0, 0),
-            ticks_since_spawn: VISIT_DURATION_TICKS,
-        };
+    mod advance {
+        use super::*;
 
-        assert!(visitor.has_expired());
-    }
+        #[test]
+        fn test_advance_does_nothing_when_path_is_empty() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (1.0, 2.0, 3.0),
+                path: vec![],
+                target: (1, 2, 3),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            visitor.advance(1.0, 1.0);
+    
+            assert_close(visitor.position, (1.0, 2.0, 3.0));
+            assert!(visitor.path.is_empty());
+        }
+    
+        #[test]
+        fn test_advance_moves_partway_when_step_is_smaller_than_distance() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            visitor.advance(1.0, 0.3); // step = 0.3, distance = 1.0
+    
+            assert_close(visitor.position, (0.3, 0.0, 0.0));
+            assert_eq!(visitor.path, vec![(1, 0, 0)]); // pas encore atteint, le point reste
+        }
+    
+        #[test]
+        fn test_advance_snaps_to_next_point_and_pops_path_when_step_reaches_it_exactly() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            visitor.advance(1.0, 1.0); // step = 1.0 == distance
+    
+            assert_close(visitor.position, (1.0, 0.0, 0.0));
+            assert!(visitor.path.is_empty());
+        }
+    
+        #[test]
+        fn test_advance_does_not_overshoot_into_remaining_budget_when_step_exceeds_distance() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            visitor.advance(2.0, 1.0); // step = 2.0, distance = 1.0
+    
+            // Comportement actuel : se cale exactement sur le point, ne continue pas
+            // au-delà avec le budget de mouvement restant (limitation connue, pas un bug).
+            assert_close(visitor.position, (1.0, 0.0, 0.0));
+            assert!(visitor.path.is_empty());
+        }
+    
+        #[test]
+        fn test_advance_only_pops_the_reached_point_when_path_has_several() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0), (2, 0, 0)],
+                target: (2, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+    
+            visitor.advance(1.0, 1.0);
+    
+            assert_close(visitor.position, (1.0, 0.0, 0.0));
+            assert_eq!(visitor.path, vec![(2, 0, 0)]);
+        }
 
-    #[test]
-    fn test_has_expired_is_true_after_visit_duration() {
-        let visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![],
-            target: (0, 0, 0),
-            ticks_since_spawn: VISIT_DURATION_TICKS + 500,
-        };
+        #[test]
+        fn test_advance_sets_heading_directly_to_desired_direction_on_first_move() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
 
-        assert!(visitor.has_expired());
-    }
+            visitor.advance(0.0, 1.0); // vitesse nulle : isole l'effet sur heading, sans bouger position
 
-    #[test]
-    fn test_advance_does_nothing_when_path_is_empty() {
-        let mut visitor = Visitor {
-            id: "v1".into(),
-            position: (1.0, 2.0, 3.0),
-            path: vec![],
-            target: (1, 2, 3),
-            ticks_since_spawn: 0,
-        };
+            assert_close(visitor.heading, (1.0, 0.0, 0.0));
+        }
 
-        visitor.advance(1.0, 1.0);
+        #[test]
+        fn test_advance_smooths_heading_toward_desired_direction_on_subsequent_move() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(0, 1, 0)],
+                target: (0, 1, 0),
+                ticks_since_spawn: 0,
+                heading: (1.0, 0.0, 0.0), // déjà orienté vers +x, la cible est maintenant vers +y
+            };
 
-        assert_close(visitor.position, (1.0, 2.0, 3.0));
-        assert!(visitor.path.is_empty());
-    }
+            visitor.advance(0.0, 1.0);
 
-    #[test]
-    fn test_advance_moves_partway_when_step_is_smaller_than_distance() {
-        let mut visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![(1, 0, 0)],
-            target: (1, 0, 0),
-            ticks_since_spawn: 0,
-        };
+            let expected = {
+                let blended = (1.0 - STEERING_FACTOR, STEERING_FACTOR, 0.0);
+                let len = (blended.0 * blended.0 + blended.1 * blended.1 + blended.2 * blended.2).sqrt();
+                (blended.0 / len, blended.1 / len, blended.2 / len)
+            };
+            assert_close(visitor.heading, expected);
+            // Le virage est progressif : ni resté sur (1,0,0), ni sauté directement sur (0,1,0).
+            assert_ne!(visitor.heading, (1.0, 0.0, 0.0));
+            assert_ne!(visitor.heading, (0.0, 1.0, 0.0));
+        }
 
-        visitor.advance(1.0, 0.3); // step = 0.3, distance = 1.0
+        #[test]
+        fn test_advance_heading_stays_a_unit_vector_after_smoothing() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(0, 1, 0)],
+                target: (0, 1, 0),
+                ticks_since_spawn: 0,
+                heading: (1.0, 0.0, 0.0),
+            };
 
-        assert_close(visitor.position, (0.3, 0.0, 0.0));
-        assert_eq!(visitor.path, vec![(1, 0, 0)]); // pas encore atteint, le point reste
-    }
+            visitor.advance(0.0, 1.0);
 
-    #[test]
-    fn test_advance_snaps_to_next_point_and_pops_path_when_step_reaches_it_exactly() {
-        let mut visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![(1, 0, 0)],
-            target: (1, 0, 0),
-            ticks_since_spawn: 0,
-        };
-
-        visitor.advance(1.0, 1.0); // step = 1.0 == distance
-
-        assert_close(visitor.position, (1.0, 0.0, 0.0));
-        assert!(visitor.path.is_empty());
-    }
-
-    #[test]
-    fn test_advance_does_not_overshoot_into_remaining_budget_when_step_exceeds_distance() {
-        let mut visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![(1, 0, 0)],
-            target: (1, 0, 0),
-            ticks_since_spawn: 0,
-        };
-
-        visitor.advance(2.0, 1.0); // step = 2.0, distance = 1.0
-
-        // Comportement actuel : se cale exactement sur le point, ne continue pas
-        // au-delà avec le budget de mouvement restant (limitation connue, pas un bug).
-        assert_close(visitor.position, (1.0, 0.0, 0.0));
-        assert!(visitor.path.is_empty());
-    }
-
-    #[test]
-    fn test_advance_only_pops_the_reached_point_when_path_has_several() {
-        let mut visitor = Visitor {
-            id: "v1".into(),
-            position: (0.0, 0.0, 0.0),
-            path: vec![(1, 0, 0), (2, 0, 0)],
-            target: (2, 0, 0),
-            ticks_since_spawn: 0,
-        };
-
-        visitor.advance(1.0, 1.0);
-
-        assert_close(visitor.position, (1.0, 0.0, 0.0));
-        assert_eq!(visitor.path, vec![(2, 0, 0)]);
+            let len = (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2)).sqrt();
+            assert!((len - 1.0).abs() < 1e-5, "heading devrait rester unitaire, longueur = {len}");
+        }
     }
 
 }

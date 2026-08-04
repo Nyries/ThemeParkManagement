@@ -71,6 +71,7 @@ impl GameWorld {
             path,
             target,
             ticks_since_spawn: 0,
+            heading: (0.0, 0.0, 0.0),
         });
 
         self.density
