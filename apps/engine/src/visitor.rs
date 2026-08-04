@@ -9,6 +9,7 @@ pub struct Visitor {
     pub target: (i32, i32, i32),
     pub ticks_since_spawn: u64,
     pub heading: (f32, f32, f32),
+    pub is_leaving: bool,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -189,6 +190,7 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: VISIT_DURATION_TICKS - 1,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             assert!(!visitor.has_expired());
@@ -203,6 +205,7 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             assert!(visitor.has_expired());
@@ -217,6 +220,7 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: VISIT_DURATION_TICKS + 500,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             assert!(visitor.has_expired());
@@ -235,6 +239,7 @@ mod tests {
                 target: (1, 2, 3),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
@@ -252,6 +257,7 @@ mod tests {
                 target: (1, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
@@ -269,6 +275,7 @@ mod tests {
                 target: (1, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
@@ -286,6 +293,7 @@ mod tests {
                 target: (1, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
@@ -303,6 +311,7 @@ mod tests {
                 target: (2, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
     
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
@@ -320,6 +329,7 @@ mod tests {
                 target: (1, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -335,6 +345,7 @@ mod tests {
                 target: (0, 1, 0),
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
+                is_leaving: false,
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -358,6 +369,7 @@ mod tests {
                 target: (0, 1, 0),
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
+                is_leaving: false,
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -370,16 +382,15 @@ mod tests {
             let mut visitor = Visitor {
                 id: "v1".into(),
                 position: (0.0, 0.0, 0.0),
-                path: vec![(10, 0, 0)], // loin, pour rester dans la branche "pas encore arrivé"
+                path: vec![(10, 0, 0)], 
                 target: (10, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
 
             visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
 
-            // Sans répulsion, la position serait (0.5, 0.0, 0.0) — tout droit vers +x.
-            // Avec, la direction doit être déviée vers +y.
             assert!(visitor.position.1 > 0.0, "repulsion should push lateraly");
             assert!(visitor.position.0 < 0.5, "x should be reduced by the deviation");
         }
@@ -393,11 +404,12 @@ mod tests {
                 target: (10, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             };
 
             let speed = 1.0;
             let dt = 0.5;
-            visitor.advance(speed, dt, (5.0, 5.0, 0.0)); // répulsion énorme, très supérieure à la direction désirée
+            visitor.advance(speed, dt, (5.0, 5.0, 0.0)); 
 
             let moved = distance((0.0, 0.0, 0.0), visitor.position);
             assert!((moved - speed * dt).abs() < 1e-5);

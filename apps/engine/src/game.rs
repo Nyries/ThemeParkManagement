@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, default};
+use std::{collections::{HashMap, HashSet}};
 
 use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
@@ -42,16 +42,34 @@ impl GameWorld {
         // Real game loop of the core game
         self.dirty_chunks.clear();
         let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
-        
+        let exit = self.park_map.entrance;
+
         for v in self.visitors.iter_mut() {
+            v.ticks_since_spawn += 1; 
+
             let old_cell = (
                 v.position.0.round() as i32,
                 v.position.1.round() as i32,
                 v.position.2.round() as i32,
             );
 
-            if let Some(&next) = v.path.first() {
-                if !self.park_map.is_walkable(next.0, next.1, next.2) {
+            if let Some(exit) = exit {
+                if v.has_expired() && !v.is_leaving {
+                    v.is_leaving = true;
+                    v.target = exit;
+                    let mut new_path = self.park_map
+                        .find_path(old_cell, exit)
+                        .map(|(p, _)| p)
+                        .unwrap_or_default();
+                    if !new_path.is_empty() {
+                        new_path.remove(0);
+                    }
+                    v.path = new_path;
+                }
+            }
+
+            if let Some(&next) = v.path.first() 
+                && !self.park_map.is_walkable(next.0, next.1, next.2) {
                     let mut new_path = self.park_map
                         .find_path(old_cell, v.target)
                         .map(|(path, _cost)| path)
@@ -60,7 +78,7 @@ impl GameWorld {
                         new_path.remove(0);
                     }
                     v.path = new_path;
-                }
+                
             }
             let base_speed = self.park_map
                 .get_infrastructure(old_cell.0, old_cell.1, old_cell.2)
@@ -108,7 +126,30 @@ impl GameWorld {
             }
         }
 
+        // Despawn
+        let mut exited_count = 0u64;
+        self.visitors.retain(|v| {
+            let should_exist = v.is_leaving && v.path.is_empty();
+            if should_exist {
+                let cell = (
+                v.position.0.round() as i32,
+                v.position.1.round() as i32,
+                v.position.2.round() as i32,
+                );
+                if let Some(bucket) = self.density.get_mut(&cell) {
+                    bucket.retain(|id| id != &v.id);
+                    if bucket.is_empty() {
+                        self.density.remove(&cell);
+                    }
+                }
+                exited_count += 1;
+            }
+            !should_exist
+        });
+
+        self.metrics.visitors_exited += exited_count;
         self.metrics.visitors_in_park = self.visitors.len();
+
         self.tick_count += 1;
     }
 
@@ -135,6 +176,7 @@ impl GameWorld {
             target,
             ticks_since_spawn: 0,
             heading: (0.0, 0.0, 0.0),
+            is_leaving: false
         });
 
         self.density
@@ -246,7 +288,9 @@ mod tests {
     }
 
     mod tick {
-        use super::*;
+        use crate::balance::VISIT_DURATION_TICKS;
+
+use super::*;
 
         #[test]
         fn test_tick_moves_visitor_toward_target() {
@@ -295,6 +339,7 @@ mod tests {
                 target: (5, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
             lone_world.density.insert((0, 0, 0), vec!["lone".into()]);
 
@@ -307,6 +352,7 @@ mod tests {
                 target: (5, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
             // v1/v2/v3 n'existent que dans le seau de densité, pas dans self.visitors :
             // ça isole l'effet de densité sur la vitesse sans bruit de répulsion (positions inconnues -> ignorées).
@@ -337,6 +383,7 @@ mod tests {
                 target: (5, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
             world.visitors.push(Visitor {
                 id: "b".into(),
@@ -345,6 +392,7 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
             world.density.insert((0, 0, 0), vec!["a".into(), "b".into()]);
 
@@ -366,6 +414,7 @@ mod tests {
                 target: (5, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
 
             world.tick(1.0);
@@ -412,6 +461,7 @@ mod tests {
                 target: (1, 1, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
 
             world.park_map.remove_infrasture(1, 0, 0); // simule une modification de carte
@@ -436,6 +486,7 @@ mod tests {
                 target: (1, 0, 0), // la cible elle-même va devenir impraticable, aucune autre route
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
             });
 
             world.park_map.remove_infrasture(1, 0, 0);
@@ -458,6 +509,54 @@ mod tests {
 
             assert_eq!(world.metrics.visitors_in_park, 2);
         }
+
+        #[test]
+        fn test_tick_redirects_expired_visitor_toward_exit() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (1.0, 0.0, 0.0),
+                path: vec![],
+                target: (1, 0, 0),
+                ticks_since_spawn: VISIT_DURATION_TICKS,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            });
+
+            world.tick(0.01);
+
+            let visitor = &world.visitors[0];
+            assert!(visitor.is_leaving);
+            assert_eq!(visitor.target, (0, 0, 0));
+        }
+
+        #[test]
+        fn test_tick_removes_visitor_who_reached_the_exit() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![], // déjà arrivé
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: true, // était déjà en train de partir
+            });
+            world.density.insert((0, 0, 0), vec!["a".into()]);
+
+            world.tick(0.01);
+
+            assert!(world.visitors.is_empty());
+            assert!(world.density.get(&(0, 0, 0)).is_none());
+            assert_eq!(world.metrics.visitors_exited, 1);
+        }
+
     }
 
 }
