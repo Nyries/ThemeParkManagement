@@ -21,6 +21,15 @@ pub(crate) fn vertical_movement_cost_for(shape: &InfrastructureShape) -> u32 {
     }
 }
 
+pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
+    match shape {
+        InfrastructureShape::Path => 1.0,
+        InfrastructureShape::Ramp { .. } => 0.7,
+        InfrastructureShape::Stairs { .. } => 0.5,
+    }
+}
+
+
 fn crossing_flags_for(template_id: &str) -> (bool, bool) {
     // Allows above or allows below
     match template_id {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{map::{Bounds3d, ParkMap}, visitor::{Visitor, VisitorId}};
+use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, speed_at}};
 
 pub struct GameWorld {
     pub park_map: ParkMap,
@@ -28,11 +28,24 @@ impl GameWorld {
         }
     }
 
-    pub fn update(&mut self) {
-        self.tick_count += 1;
-    }
+    pub fn tick(&mut self, dt: f32) {
+        // Real game loop of the core game
+        
+        for v in self.visitors.iter_mut() {
+            let cell = (
+                v.position.0.round() as i32,
+                v.position.1.round() as i32,
+                v.position.2.round() as i32,
+            );
+            let base_speed = self.park_map
+                .get_infrastructure(cell.0, cell.1, cell.2)
+                .map(base_speed_for)
+                .unwrap_or(0.0);
+            let density = self.density.get(&cell).map(|bucket| bucket.len()).unwrap_or(0);
+            let speed = speed_at(base_speed, density);
 
-    pub fn tick(&mut self) {
+            v.advance(speed, dt); 
+        }
         self.tick_count += 1;
     }
 
@@ -42,10 +55,13 @@ impl GameWorld {
         };
 
         let target = self.park_map.random_walkable_cell(entrance).unwrap_or(entrance);
-        let path = self.park_map
+        let mut path = self.park_map
             .find_path(entrance, target)
             .map(|(path, _cost)| path)
             .unwrap_or_default();
+        if !path.is_empty() {
+            path.remove(0);
+        }
 
         let id = uuid::Uuid::new_v4().to_string();
 
@@ -53,7 +69,8 @@ impl GameWorld {
             id: id.clone(), 
             position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32), 
             path,
-            target
+            target,
+            ticks_since_spawn: 0,
         });
 
         self.density
@@ -81,10 +98,10 @@ mod tests {
         let mut world = GameWorld::new();
         
         // On déclenche manuellement un tick sans lancer la boucle infinie
-        world.tick();
+        world.tick(0.05);
         assert_eq!(world.tick_count, 1);
         
-        world.tick();
+        world.tick(0.05);
         assert_eq!(world.tick_count, 2);
     }
 
@@ -110,7 +127,7 @@ mod tests {
         let visitor = &world.visitors[0];
         assert_eq!(visitor.position, (5.0, 3.0, 0.0));
         assert_eq!(visitor.target, (5, 3, 0));
-        assert_eq!(visitor.path, vec![(5, 3, 0)]);
+        assert_eq!(visitor.path, vec![]);
     }
 
     #[test]
@@ -125,7 +142,7 @@ mod tests {
         let visitor = &world.visitors[0];
         assert_eq!(visitor.position, (0.0, 0.0, 0.0));
         assert_eq!(visitor.target, (1, 0, 0)); // seul autre candidat possible, déterministe
-        assert_eq!(visitor.path, vec![(0, 0, 0), (1, 0, 0)]);
+        assert_eq!(visitor.path, vec![(1, 0, 0)]);
     }
 
 
