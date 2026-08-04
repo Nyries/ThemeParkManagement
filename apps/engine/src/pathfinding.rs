@@ -4,7 +4,7 @@ pub type PathResult = (Vec<(i32, i32, i32)>, u32);
 
 impl ParkMap {
 
-    fn is_walkable(&self, x: i32, y: i32, z: i32) -> bool {
+    pub(crate) fn is_walkable(&self, x: i32, y: i32, z: i32) -> bool {
         matches!(
             self.get_infrastructure(x, y, z),
             Some(InfrastructureShape::Path)

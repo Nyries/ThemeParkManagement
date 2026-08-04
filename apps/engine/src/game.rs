@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
@@ -6,7 +6,8 @@ pub struct GameWorld {
     pub park_map: ParkMap,
     pub tick_count: u64,
     pub visitors: Vec<Visitor>,
-    pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>
+    pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
+    pub dirty_chunks: HashSet<(i32, i32)>,
 }
 
 impl Default for GameWorld {
@@ -24,12 +25,14 @@ impl GameWorld {
             ), 
             tick_count: 0, 
             visitors: vec![],
-            density: HashMap::new()
+            density: HashMap::new(),
+            dirty_chunks: HashSet::new(),
         }
     }
 
     pub fn tick(&mut self, dt: f32) {
         // Real game loop of the core game
+        self.dirty_chunks.clear();
         let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
         
         for v in self.visitors.iter_mut() {
@@ -38,6 +41,19 @@ impl GameWorld {
                 v.position.1.round() as i32,
                 v.position.2.round() as i32,
             );
+
+            if let Some(&next) = v.path.first() {
+                if !self.park_map.is_walkable(next.0, next.1, next.2) {
+                    let mut new_path = self.park_map
+                        .find_path(old_cell, v.target)
+                        .map(|(path, _cost)| path)
+                        .unwrap_or_default();
+                    if !new_path.is_empty() {
+                        new_path.remove(0);
+                    }
+                    v.path = new_path;
+                }
+            }
             let base_speed = self.park_map
                 .get_infrastructure(old_cell.0, old_cell.1, old_cell.2)
                 .map(base_speed_for)
@@ -80,6 +96,7 @@ impl GameWorld {
                     }
                 }
                 self.density.entry(new_cell).or_default().push(v.id.clone());
+                self.dirty_chunks.insert((new_cell.0, new_cell.1));
             }
         }
 
@@ -246,7 +263,7 @@ mod tests {
 
             let visitor_id = world.visitors[0].id.clone();
             assert_eq!(world.visitors[0].position, (1.0, 0.0, 0.0));
-            assert!(world.density.get(&(0, 0, 0)).is_none(), "old cell bucket should be removed once empty");
+            assert!(!world.density.contains_key(&(0, 0, 0)), "old cell bucket should be removed once empty");
             assert_eq!(world.density.get(&(1, 0, 0)), Some(&vec![visitor_id]));
         }
 
@@ -254,6 +271,7 @@ mod tests {
         fn test_tick_speed_decreases_with_density_on_current_cell() {
             let mut lone_world = GameWorld::new();
             lone_world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            lone_world.park_map.set_infrastructure(5, 0, 0, InfrastructureShape::Path);
             lone_world.visitors.push(Visitor {
                 id: "lone".into(),
                 position: (0.0, 0.0, 0.0),
@@ -294,6 +312,7 @@ mod tests {
         fn test_tick_applies_repulsion_between_visitors_sharing_a_cell() {
             let mut world = GameWorld::new();
             world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(5, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -337,6 +356,79 @@ mod tests {
 
             assert_eq!(world.visitors[0].position, (0.0, 0.0, 0.0));
         }
+
+        #[test]
+        fn test_tick_marks_crossed_chunk_as_dirty() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            world.spawn_visitor();
+
+            world.tick(2.0); // dt large : traverse bien jusqu'à (1,0,0)
+
+            assert!(world.dirty_chunks.contains(&(1, 0)));
+        }
+
+        #[test]
+        fn test_tick_clears_dirty_chunks_when_nothing_moves() {
+            let mut world = GameWorld::new();
+            // pas de visiteurs, rien ne bouge
+
+            world.tick(1.0);
+
+            assert!(world.dirty_chunks.is_empty());
+        }
+        
+        #[test]
+        fn test_tick_recalculates_path_when_next_cell_becomes_impraticable() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(0, 1, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 1, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)], // stale : cette case va être bloquée juste après
+                target: (1, 1, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            });
+
+            world.park_map.remove_infrasture(1, 0, 0); // simule une modification de carte
+
+            world.tick(0.01); // dt petit : on veut juste voir le chemin recalculé, pas l'arrivée
+
+            let visitor = &world.visitors[0];
+            assert_ne!(visitor.path.first(), Some(&(1, 0, 0)), "should not still point at the blocked cell");
+            assert!(!visitor.path.is_empty(), "an alternate route exists via (0,1,0)");
+        }
+
+        #[test]
+        fn test_tick_clears_path_when_target_becomes_unreachable_after_recalculation() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0), // la cible elle-même va devenir impraticable, aucune autre route
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            });
+
+            world.park_map.remove_infrasture(1, 0, 0);
+
+            world.tick(0.01);
+
+            assert!(world.visitors[0].path.is_empty());
+        }
+
 
     }
 
