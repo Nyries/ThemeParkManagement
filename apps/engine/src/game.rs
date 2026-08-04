@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, speed_at}};
+use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
 pub struct GameWorld {
     pub park_map: ParkMap,
@@ -30,6 +30,7 @@ impl GameWorld {
 
     pub fn tick(&mut self, dt: f32) {
         // Real game loop of the core game
+        let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
         
         for v in self.visitors.iter_mut() {
             let cell = (
@@ -44,8 +45,29 @@ impl GameWorld {
             let density = self.density.get(&cell).map(|bucket| bucket.len()).unwrap_or(0);
             let speed = speed_at(base_speed, density);
 
-            v.advance(speed, dt); 
+            let mut repulsion = (0.0, 0.0, 0.0);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let neighbor_cell = (cell.0 + dx, cell.1 + dy, cell.2);
+                    if let Some(bucket) = self.density.get(&neighbor_cell) {
+                        for other_id in bucket {
+                            if *other_id == v.id {
+                                continue;
+                            }
+                            if let Some(&other_pos) = positions.get(other_id) {
+                                let force =repulsion_force(v.position, other_pos);
+                                repulsion.0 += force.0;
+                                repulsion.1 += force.1;
+                                repulsion.2 += force.2;
+                            }
+                        }
+                    }
+                }
+            }
+
+            v.advance(speed, dt, repulsion); 
         }
+        
         self.tick_count += 1;
     }
 
@@ -76,7 +98,7 @@ impl GameWorld {
 
         self.density
             .entry(entrance)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(id);
     } 
 }

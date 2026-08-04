@@ -64,13 +64,20 @@ impl Visitor {
         self.ticks_since_spawn >= VISIT_DURATION_TICKS
     }
     
-    pub fn advance(&mut self, speed: f32, dt: f32) {
+    pub fn advance(&mut self, speed: f32, dt: f32, repulsion: (f32, f32, f32)) {
         let Some(&next) = self.path.first() else {
             return;
         };
         let next_f = (next.0 as f32, next.1 as f32, next.2 as f32);
         let dist_to_next = distance(self.position, next_f);
-        let desired = direction(self.position, next_f);
+
+        let raw_desired = direction(self.position, next_f);
+        let combined = (
+            raw_desired.0 + repulsion.0,
+            raw_desired.1 + repulsion.1,
+            raw_desired.2 + repulsion.2,
+        );
+        let desired = normalize(combined);
 
         self.heading = if self.heading == (0.0, 0.0, 0.0) {
             desired
@@ -84,10 +91,9 @@ impl Visitor {
             self.path.remove(0);
             self.position = next_f;
         } else {
-            let (dx, dy, dz) = direction(self.position, next_f);
-            self.position.0 += dx * step;
-            self.position.1 += dy * step;
-            self.position.2 += dz * step;
+            self.position.0 += self.heading.0 * step;
+            self.position.1 += self.heading.1 * step;
+            self.position.2 += self.heading.2 * step;
         }
     }
 }
@@ -231,7 +237,7 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
     
-            visitor.advance(1.0, 1.0);
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
     
             assert_close(visitor.position, (1.0, 2.0, 3.0));
             assert!(visitor.path.is_empty());
@@ -248,10 +254,10 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
     
-            visitor.advance(1.0, 0.3); // step = 0.3, distance = 1.0
+            visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
     
             assert_close(visitor.position, (0.3, 0.0, 0.0));
-            assert_eq!(visitor.path, vec![(1, 0, 0)]); // pas encore atteint, le point reste
+            assert_eq!(visitor.path, vec![(1, 0, 0)]); 
         }
     
         #[test]
@@ -265,7 +271,7 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
     
-            visitor.advance(1.0, 1.0); // step = 1.0 == distance
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
     
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
@@ -282,10 +288,8 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
     
-            visitor.advance(2.0, 1.0); // step = 2.0, distance = 1.0
+            visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
     
-            // Comportement actuel : se cale exactement sur le point, ne continue pas
-            // au-delà avec le budget de mouvement restant (limitation connue, pas un bug).
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
         }
@@ -301,7 +305,7 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
     
-            visitor.advance(1.0, 1.0);
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
     
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(2, 0, 0)]);
@@ -318,8 +322,7 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
             };
 
-            visitor.advance(0.0, 1.0); // vitesse nulle : isole l'effet sur heading, sans bouger position
-
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
             assert_close(visitor.heading, (1.0, 0.0, 0.0));
         }
 
@@ -331,10 +334,10 @@ mod tests {
                 path: vec![(0, 1, 0)],
                 target: (0, 1, 0),
                 ticks_since_spawn: 0,
-                heading: (1.0, 0.0, 0.0), // déjà orienté vers +x, la cible est maintenant vers +y
+                heading: (1.0, 0.0, 0.0),
             };
 
-            visitor.advance(0.0, 1.0);
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
 
             let expected = {
                 let blended = (1.0 - STEERING_FACTOR, STEERING_FACTOR, 0.0);
@@ -342,7 +345,6 @@ mod tests {
                 (blended.0 / len, blended.1 / len, blended.2 / len)
             };
             assert_close(visitor.heading, expected);
-            // Le virage est progressif : ni resté sur (1,0,0), ni sauté directement sur (0,1,0).
             assert_ne!(visitor.heading, (1.0, 0.0, 0.0));
             assert_ne!(visitor.heading, (0.0, 1.0, 0.0));
         }
@@ -358,11 +360,49 @@ mod tests {
                 heading: (1.0, 0.0, 0.0),
             };
 
-            visitor.advance(0.0, 1.0);
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
 
             let len = (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2)).sqrt();
-            assert!((len - 1.0).abs() < 1e-5, "heading devrait rester unitaire, longueur = {len}");
+            assert!((len - 1.0).abs() < 1e-5, "heading should remain unitary, length = {len}");
         }
+        #[test]
+        fn test_advance_repulsion_deflects_movement_away_from_desired_direction() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(10, 0, 0)], // loin, pour rester dans la branche "pas encore arrivé"
+                target: (10, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+
+            visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
+
+            // Sans répulsion, la position serait (0.5, 0.0, 0.0) — tout droit vers +x.
+            // Avec, la direction doit être déviée vers +y.
+            assert!(visitor.position.1 > 0.0, "repulsion should push lateraly");
+            assert!(visitor.position.0 < 0.5, "x should be reduced by the deviation");
+        }
+
+        #[test]
+        fn test_advance_movement_magnitude_stays_bounded_to_speed_even_with_strong_repulsion() {
+            let mut visitor = Visitor {
+                id: "v1".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(10, 0, 0)],
+                target: (10, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+            };
+
+            let speed = 1.0;
+            let dt = 0.5;
+            visitor.advance(speed, dt, (5.0, 5.0, 0.0)); // répulsion énorme, très supérieure à la direction désirée
+
+            let moved = distance((0.0, 0.0, 0.0), visitor.position);
+            assert!((moved - speed * dt).abs() < 1e-5);
+        }
+
     }
 
 }
