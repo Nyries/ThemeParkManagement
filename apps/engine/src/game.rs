@@ -1,6 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, default};
 
 use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
+
+#[derive(Debug, Default)]
+pub struct ParkMetricsAccumulator {
+    pub visitors_in_park: usize,
+    pub visitors_exited: u64,
+}
 
 pub struct GameWorld {
     pub park_map: ParkMap,
@@ -8,6 +14,7 @@ pub struct GameWorld {
     pub visitors: Vec<Visitor>,
     pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
     pub dirty_chunks: HashSet<(i32, i32)>,
+    pub metrics: ParkMetricsAccumulator
 }
 
 impl Default for GameWorld {
@@ -27,6 +34,7 @@ impl GameWorld {
             visitors: vec![],
             density: HashMap::new(),
             dirty_chunks: HashSet::new(),
+            metrics: ParkMetricsAccumulator::default(),
         }
     }
 
@@ -100,6 +108,7 @@ impl GameWorld {
             }
         }
 
+        self.metrics.visitors_in_park = self.visitors.len();
         self.tick_count += 1;
     }
 
@@ -139,6 +148,13 @@ impl GameWorld {
 mod tests {
     use super::*;
     use crate::map::InfrastructureShape;
+
+    #[test]
+    fn test_game_world_starts_with_empty_metrics() {
+        let world = GameWorld::new();
+        assert_eq!(world.metrics.visitors_in_park, 0);
+        assert_eq!(world.metrics.visitors_exited, 0);
+    }
 
     mod spawn_visitor {
         use super::*;
@@ -429,7 +445,19 @@ mod tests {
             assert!(world.visitors[0].path.is_empty());
         }
 
+        #[test]
+        fn test_tick_syncs_visitors_in_park_metric() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
+            world.spawn_visitor();
+            world.spawn_visitor();
+
+            world.tick(0.05);
+
+            assert_eq!(world.metrics.visitors_in_park, 2);
+        }
     }
 
 }
