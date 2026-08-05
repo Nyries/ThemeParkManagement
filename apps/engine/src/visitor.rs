@@ -1,4 +1,4 @@
-use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, STEERING_FACTOR, VISIT_DURATION_TICKS};
+use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, LATERAL_REPULSION_FACTOR, STEERING_FACTOR, VISIT_DURATION_TICKS};
 
 pub type VisitorId = String;
 
@@ -33,6 +33,28 @@ fn normalize(v: (f32, f32, f32)) -> (f32, f32, f32) {
         return (0.0, 0.0, 0.0);
     }
     (v.0 / len, v.1 / len, v.2 / len)
+}
+
+fn dot(a: (f32, f32, f32), b: (f32, f32, f32))-> f32 {
+    a.0 * b.0 + a.1 * b.1 + a.2 * b.2
+}
+
+fn atternuate_lateral_repulsion(repulsion: (f32, f32, f32), forward: (f32, f32, f32)) -> (f32, f32, f32) {
+    if forward == (0.0, 0.0, 0.0) {
+        return repulsion;
+    }
+    let along = dot(repulsion, forward);
+    let parallel = (forward.0 * along, forward.1 * along, forward.2 * along);
+    let lateral = (
+        repulsion.0 - parallel.0,
+        repulsion.1 - parallel.1,
+        repulsion.2 - parallel.2,
+    );
+    (
+        parallel.0 + lateral.0 * LATERAL_REPULSION_FACTOR,
+        parallel.1 + lateral.1 * LATERAL_REPULSION_FACTOR,
+        parallel.2 + lateral.2 * LATERAL_REPULSION_FACTOR,
+    )
 }
 
 fn lerp_direction(current: (f32, f32, f32), desired: (f32, f32, f32), factor: f32) -> (f32, f32, f32) {
@@ -73,10 +95,11 @@ impl Visitor {
         let dist_to_next = distance(self.position, next_f);
 
         let raw_desired = direction(self.position, next_f);
+        let attenuated_repulsion = atternuate_lateral_repulsion(repulsion, raw_desired);
         let combined = (
-            raw_desired.0 + repulsion.0,
-            raw_desired.1 + repulsion.1,
-            raw_desired.2 + repulsion.2,
+            raw_desired.0 + attenuated_repulsion.0,
+            raw_desired.1 + attenuated_repulsion.1,
+            raw_desired.2 + attenuated_repulsion.2,
         );
         let desired = normalize(combined);
 
@@ -415,6 +438,33 @@ mod tests {
             assert!((moved - speed * dt).abs() < 1e-5);
         }
 
+        #[test]
+        fn test_advance_keeps_a_visitor_within_a_single_wide_corridor_even_under_strong_lateral_repulsion() {
+            // A visitor on a corridor one cell wide (only y=0 is walkable) should never be
+            // pushed to |y| >= 0.5 by repulsion alone, since that would round onto a
+            // non-walkable neighbor cell. advance() has no notion of walkable cells though:
+            // it only bounds movement magnitude to speed * dt, not direction.
+            let mut visitor = Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            };
+
+            // Several neighbors packed close together can sum to a repulsion far larger than
+            // any single crowd member's contribution — nothing currently caps the total.
+            let strong_lateral_repulsion = (0.0, 10.0, 0.0);
+            visitor.advance(1.0, 0.6, strong_lateral_repulsion);
+
+            assert!(
+                visitor.position.1.abs() < 0.5,
+                "visitor left the single-wide corridor: y = {}",
+                visitor.position.1
+            );
+        }
     }
 
 }

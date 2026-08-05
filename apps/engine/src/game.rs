@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}};
 
-use crate::{balance::SPAWN_INTERVAL_TICKS, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
+use crate::{balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS}, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
 
 
@@ -171,7 +171,7 @@ fn compute_repulsion(
         for dy in -1..=1 {
             let neighbor_cell = (cell.0 + dx, cell.1 + dy, cell.2);
             if let Some(bucket) = density.get(&neighbor_cell) {
-                for other_id in bucket {
+                for other_id in bucket.iter().take(DENSITY_CAP) {
                     if *other_id == v.id {
                         continue;
                     }
@@ -830,6 +830,58 @@ use super::*;
             assert!(v.path.is_empty());
         }
     }
+
+    mod compute_repulsion {
+        use super::*;
+
+        fn visitor_at(id: &str, position: (f32, f32, f32)) -> Visitor {
+            Visitor {
+                id: id.into(),
+                position,
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            }
+        }
+
+        #[test]
+        fn test_ignores_neighbors_beyond_density_cap_in_the_same_bucket() {
+            let v = visitor_at("a", (0.0, 0.0, 0.0));
+
+            let mut positions: HashMap<VisitorId, (f32, f32, f32)> = HashMap::new();
+            let mut bucket_at_cap: Vec<VisitorId> = Vec::new();
+            for i in 0..DENSITY_CAP {
+                let id = format!("n{i}");
+                positions.insert(id.clone(), (0.1, 0.0, 0.0));
+                bucket_at_cap.push(id);
+            }
+
+            // Same first DENSITY_CAP neighbors, plus extra ones packed into the same cell.
+            let mut bucket_over_cap = bucket_at_cap.clone();
+            for i in DENSITY_CAP..(DENSITY_CAP + 10) {
+                let id = format!("n{i}");
+                positions.insert(id.clone(), (0.1, 0.0, 0.0));
+                bucket_over_cap.push(id);
+            }
+
+            let mut density_at_cap: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density_at_cap.insert((0, 0, 0), bucket_at_cap);
+
+            let mut density_over_cap: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density_over_cap.insert((0, 0, 0), bucket_over_cap);
+
+            let repulsion_at_cap = compute_repulsion(&v, &density_at_cap, &positions, (0, 0, 0));
+            let repulsion_over_cap = compute_repulsion(&v, &density_over_cap, &positions, (0, 0, 0));
+
+            assert_eq!(
+                repulsion_at_cap, repulsion_over_cap,
+                "neighbors beyond DENSITY_CAP in the same bucket should not affect the result"
+            );
+        }
+    }
+
 
     mod update_density_and_dirty_chunks {
         use super::*;
