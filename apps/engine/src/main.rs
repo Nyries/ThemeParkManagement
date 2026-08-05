@@ -1,3 +1,4 @@
+use engine::balance::TICK_INTERVAL;
 use engine::game::GameWorld;
 use engine::service::SimulationEngineService;
 use engine::map_template::{MapSource, MapTemplate};
@@ -34,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let current_tick;
             {
                 let mut w = world_clone.lock().unwrap();
-                w.update();
+                w.tick(TICK_INTERVAL);
                 current_tick = w.tick_count;
         
                 if current_tick % 100 == 0 {
