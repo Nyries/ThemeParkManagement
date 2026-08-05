@@ -111,6 +111,14 @@ impl ParkMap {
         Some((self.simplify_line_of_sight(raw_path), cost))
     }
 
+    pub fn path_excluding_start(&self, from: (i32, i32, i32), to: (i32, i32, i32)) -> Vec<(i32, i32, i32)> {
+        let mut path = self.find_path(from, to).map(|(p, _)| p).unwrap_or_default();
+        if !path.is_empty() {
+            path.remove(0);
+        }
+        path
+    }
+
 }
 
 #[cfg(test)]

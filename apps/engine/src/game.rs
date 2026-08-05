@@ -2,6 +2,8 @@ use std::{collections::{HashMap, HashSet}};
 
 use crate::{balance::SPAWN_INTERVAL_TICKS, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
+
+
 #[derive(Debug, Default)]
 pub struct ParkMetricsAccumulator {
     pub visitors_in_park: usize,
@@ -38,107 +40,7 @@ impl GameWorld {
         }
     }
 
-    pub fn tick(&mut self, dt: f32) {
-        // Real game loop of the core game
-        self.dirty_chunks.clear();
-        let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
-        let exit = self.park_map.entrance;
-
-        for v in self.visitors.iter_mut() {
-            v.ticks_since_spawn += 1; 
-
-            let old_cell = (
-                v.position.0.round() as i32,
-                v.position.1.round() as i32,
-                v.position.2.round() as i32,
-            );
-
-            if let Some(exit) = exit
-                && v.has_expired() && !v.is_leaving {
-                    v.is_leaving = true;
-                    v.target = exit;
-                    let mut new_path = self.park_map
-                        .find_path(old_cell, exit)
-                        .map(|(p, _)| p)
-                        .unwrap_or_default();
-                    if !new_path.is_empty() {
-                        new_path.remove(0);
-                    }
-                    v.path = new_path;
-            }
-
-            if v.path.is_empty() && !v.is_leaving {
-                let new_target = self.park_map.random_walkable_cell(old_cell).unwrap_or(old_cell);
-                v.target = new_target;
-                let mut new_path = self.park_map
-                    .find_path(old_cell, new_target)
-                    .map(|(p, _)| p)
-                    .unwrap_or_default();
-                if !new_path.is_empty() {
-                    new_path.remove(0);
-                }
-                v.path = new_path;
-            }
-
-            if let Some(&next) = v.path.first() 
-                && !self.park_map.is_walkable(next.0, next.1, next.2) {
-                    let mut new_path = self.park_map
-                        .find_path(old_cell, v.target)
-                        .map(|(path, _cost)| path)
-                        .unwrap_or_default();
-                    if !new_path.is_empty() {
-                        new_path.remove(0);
-                    }
-                    v.path = new_path;
-                
-            }
-            let base_speed = self.park_map
-                .get_infrastructure(old_cell.0, old_cell.1, old_cell.2)
-                .map(base_speed_for)
-                .unwrap_or(0.0);
-            let density = self.density.get(&old_cell).map(|bucket| bucket.len()).unwrap_or(0);
-            let speed = speed_at(base_speed, density);
-
-            let mut repulsion = (0.0, 0.0, 0.0);
-            for dx in -1..=1 {
-                for dy in -1..=1 {
-                    let neighbor_cell = (old_cell.0 + dx, old_cell.1 + dy, old_cell.2);
-                    if let Some(bucket) = self.density.get(&neighbor_cell) {
-                        for other_id in bucket {
-                            if *other_id == v.id {
-                                continue;
-                            }
-                            if let Some(&other_pos) = positions.get(other_id) {
-                                let force =repulsion_force(v.position, other_pos);
-                                repulsion.0 += force.0;
-                                repulsion.1 += force.1;
-                                repulsion.2 += force.2;
-                            }
-                        }
-                    }
-                }
-            }
-
-            v.advance(speed, dt, repulsion); 
-
-            let new_cell = (
-                v.position.0.round() as i32,
-                v.position.1.round() as i32,
-                v.position.2.round() as i32,
-            );
-            if new_cell != old_cell {
-                if let Some(bucket) = self.density.get_mut(&old_cell) {
-                    bucket.retain(|id| id != &v.id);
-                    if bucket.is_empty() {
-                        self.density.remove(&old_cell);
-                    }
-                }
-                self.density.entry(new_cell).or_default().push(v.id.clone());
-                self.dirty_chunks.insert((new_cell.0, new_cell.1));
-            }
-        }
-
-        // Despawn
+    fn despawn_visitors_who_reached_exit(&mut self) {
         let mut exited_count = 0u64;
         self.visitors.retain(|v| {
             let should_exist = v.is_leaving && v.path.is_empty();
@@ -160,8 +62,32 @@ impl GameWorld {
         });
 
         self.metrics.visitors_exited += exited_count;
-        self.metrics.visitors_in_park = self.visitors.len();
+    }
 
+    pub fn tick(&mut self, dt: f32) {
+        // Real game loop of the core game
+        self.dirty_chunks.clear();
+        let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
+        let exit = self.park_map.entrance;
+
+        for v in self.visitors.iter_mut() {
+            v.ticks_since_spawn += 1; 
+            let old_cell = cell_of(v.position);
+
+            redirect_if_expired(v, &self.park_map, old_cell, exit);
+            assign_new_target_if_arrived(v, &self.park_map, old_cell);
+            recompute_path_if_blocked(v, &self.park_map, old_cell);
+
+            let speed = compute_speed(&self.park_map, &self.density, old_cell);
+            let repulsion = compute_repulsion(v, &self.density, &positions, old_cell);
+            v.advance(speed, dt, repulsion); 
+
+            let new_cell = cell_of(v.position);
+            update_density_and_dirty_chunks(&mut self.density, &mut self.dirty_chunks, &v.id, old_cell, new_cell);
+        }
+        self.despawn_visitors_who_reached_exit();
+
+        self.metrics.visitors_in_park = self.visitors.len();
         self.tick_count += 1;
 
         if self.tick_count.is_multiple_of(SPAWN_INTERVAL_TICKS) {
@@ -175,13 +101,7 @@ impl GameWorld {
         };
 
         let target = self.park_map.random_walkable_cell(entrance).unwrap_or(entrance);
-        let mut path = self.park_map
-            .find_path(entrance, target)
-            .map(|(path, _cost)| path)
-            .unwrap_or_default();
-        if !path.is_empty() {
-            path.remove(0);
-        }
+        let path = self.park_map.path_excluding_start(entrance, target);
 
         let id = uuid::Uuid::new_v4().to_string();
 
@@ -200,6 +120,92 @@ impl GameWorld {
             .or_default()
             .push(id);
     } 
+}
+
+fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
+    (position.0.round() as i32, position.1.round() as i32, position.2.round() as i32)
+}
+
+fn redirect_if_expired(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32), exit: Option<(i32, i32, i32)>) {
+    let Some(exit) = exit else { return };
+    if v.has_expired() && !v.is_leaving {
+        v.is_leaving = true;
+        v.target = exit;
+        v.path = park_map.path_excluding_start(old_cell, exit);
+    }
+}
+
+fn assign_new_target_if_arrived(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32)) {
+    if v.path.is_empty() && !v.is_leaving {
+        let new_target = park_map.random_walkable_cell(old_cell).unwrap_or(old_cell);
+        v.target = new_target;
+        v.path = park_map.path_excluding_start(old_cell, new_target);
+    }
+}
+
+fn recompute_path_if_blocked(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32)) {
+    if let Some(&next) = v.path.first()
+        && !park_map.is_walkable(next.0, next.1, next.2)
+    {
+        v.path = park_map.path_excluding_start(old_cell, v.target);
+    }
+}
+
+fn compute_speed(park_map: &ParkMap, density: &HashMap<(i32, i32, i32), Vec<VisitorId>>, cell: (i32, i32, i32)) -> f32 {
+    let base_speed = park_map
+        .get_infrastructure(cell.0, cell.1, cell.2)
+        .map(base_speed_for)
+        .unwrap_or(0.0);
+    let local_density = density.get(&cell).map(|bucket| bucket.len()).unwrap_or(0);
+    speed_at(base_speed, local_density)
+}
+
+fn compute_repulsion(
+    v: &Visitor,
+    density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
+    positions: &HashMap<VisitorId, (f32, f32, f32)>,
+    cell: (i32, i32, i32)
+) -> (f32, f32, f32) {
+    let mut repulsion = (0.0, 0.0, 0.0);
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            let neighbor_cell = (cell.0 + dx, cell.1 + dy, cell.2);
+            if let Some(bucket) = density.get(&neighbor_cell) {
+                for other_id in bucket {
+                    if *other_id == v.id {
+                        continue;
+                    }
+                    if let Some(&other_pos) = positions.get(other_id) {
+                        let force =repulsion_force(v.position, other_pos);
+                        repulsion.0 += force.0;
+                        repulsion.1 += force.1;
+                        repulsion.2 += force.2;
+                    }
+                }
+            }
+        }
+    }
+    repulsion
+}
+
+fn update_density_and_dirty_chunks(
+    density: &mut HashMap<(i32, i32, i32), Vec<VisitorId>>,
+    dirty_chunks: &mut HashSet<(i32, i32)>,
+    visitor_id: &VisitorId,
+    old_cell: (i32, i32, i32),
+    new_cell: (i32, i32, i32)
+) {
+    if new_cell == old_cell {
+        return;
+    }
+    if let Some(bucket) = density.get_mut(&old_cell) {
+        bucket.retain(|id| id != visitor_id);
+        if bucket.is_empty() {
+            density.remove(&old_cell);
+        }
+    }
+    density.entry(new_cell).or_default().push(visitor_id.clone());
+    dirty_chunks.insert((new_cell.0, new_cell.1));
 }
 
 #[cfg(test)]
@@ -632,6 +638,256 @@ use super::*;
 
             // Doit être despawné (path vide + is_leaving), pas recevoir une nouvelle cible.
             assert!(world.visitors.is_empty());
+        }
+    }
+
+    mod redirect_if_expired {
+        use crate::balance::VISIT_DURATION_TICKS;
+        use super::*;
+
+        fn expired_visitor_at(position: (i32, i32, i32)) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (position.0 as f32, position.1 as f32, position.2 as f32),
+                path: vec![],
+                target: position,
+                ticks_since_spawn: VISIT_DURATION_TICKS,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_there_is_no_exit() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = expired_visitor_at((0, 0, 0));
+
+            redirect_if_expired(&mut v, &park_map, (0, 0, 0), None);
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_nothing_when_visitor_has_not_expired() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = expired_visitor_at((0, 0, 0));
+            v.ticks_since_spawn = 0;
+
+            redirect_if_expired(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_not_overwrite_target_when_visitor_is_already_leaving() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = expired_visitor_at((0, 0, 0));
+            v.is_leaving = true;
+            v.target = (3, 3, 0);
+
+            redirect_if_expired(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.target, (3, 3, 0));
+        }
+
+        #[test]
+        fn test_sets_is_leaving_and_retargets_exit_when_expired() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = expired_visitor_at((0, 0, 0));
+
+            redirect_if_expired(&mut v, &park_map, (0, 0, 0), Some((4, 4, 0)));
+
+            assert!(v.is_leaving);
+            assert_eq!(v.target, (4, 4, 0));
+        }
+
+        #[test]
+        fn test_computes_path_toward_exit() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = expired_visitor_at((0, 0, 0));
+
+            redirect_if_expired(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+    }
+
+    mod assign_new_target_if_arrived {
+        use super::*;
+
+        fn arrived_visitor() -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_path_is_not_empty() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = arrived_visitor();
+            v.path = vec![(2, 2, 0)];
+
+            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+
+            assert_eq!(v.path, vec![(2, 2, 0)]);
+        }
+
+        #[test]
+        fn test_does_nothing_when_visitor_is_leaving() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = arrived_visitor();
+            v.is_leaving = true;
+
+            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+
+            assert!(v.path.is_empty());
+            assert_eq!(v.target, (0, 0, 0));
+        }
+
+        #[test]
+        fn test_assigns_new_target_and_path_when_arrived() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = arrived_visitor();
+
+            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+
+            assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
+            assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+    }
+
+    mod recompute_path_if_blocked {
+        use super::*;
+
+        fn visitor_with_path(path: Vec<(i32, i32, i32)>, target: (i32, i32, i32)) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path,
+                target,
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_path_is_empty() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = visitor_with_path(vec![], (0, 0, 0));
+
+            recompute_path_if_blocked(&mut v, &park_map, (0, 0, 0));
+
+            assert!(v.path.is_empty());
+        }
+
+        #[test]
+        fn test_does_nothing_when_next_cell_is_still_walkable() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = visitor_with_path(vec![(1, 0, 0)], (1, 0, 0));
+
+            recompute_path_if_blocked(&mut v, &park_map, (0, 0, 0));
+
+            assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_recomputes_path_when_next_cell_becomes_unwalkable() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(0, 1, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 1, 0, InfrastructureShape::Path);
+            // (1,0,0) is deliberately left without infrastructure: simulates the blocked cell
+            let mut v = visitor_with_path(vec![(1, 0, 0)], (1, 1, 0));
+
+            recompute_path_if_blocked(&mut v, &park_map, (0, 0, 0));
+
+            assert_ne!(v.path.first(), Some(&(1, 0, 0)));
+            assert!(!v.path.is_empty(), "an alternate route exists via (0,1,0)");
+        }
+
+        #[test]
+        fn test_clears_path_when_no_alternate_route_exists() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            // (1,0,0) is both the target and now unwalkable, no other route exists
+            let mut v = visitor_with_path(vec![(1, 0, 0)], (1, 0, 0));
+
+            recompute_path_if_blocked(&mut v, &park_map, (0, 0, 0));
+
+            assert!(v.path.is_empty());
+        }
+    }
+
+    mod update_density_and_dirty_chunks {
+        use super::*;
+
+        #[test]
+        fn test_does_nothing_when_cell_is_unchanged() {
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((0, 0, 0), vec!["a".into()]);
+            let mut dirty_chunks = HashSet::new();
+
+            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (0, 0, 0));
+
+            assert_eq!(density.get(&(0, 0, 0)), Some(&vec!["a".to_string()]));
+            assert!(dirty_chunks.is_empty());
+        }
+
+        #[test]
+        fn test_moves_visitor_to_new_bucket_when_cell_changes() {
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((0, 0, 0), vec!["a".into()]);
+            let mut dirty_chunks = HashSet::new();
+
+            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+
+            assert_eq!(density.get(&(1, 0, 0)), Some(&vec!["a".to_string()]));
+        }
+
+        #[test]
+        fn test_removes_old_bucket_when_it_becomes_empty() {
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((0, 0, 0), vec!["a".into()]);
+            let mut dirty_chunks = HashSet::new();
+
+            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+
+            assert!(!density.contains_key(&(0, 0, 0)));
+        }
+
+        #[test]
+        fn test_keeps_old_bucket_when_other_visitors_remain() {
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((0, 0, 0), vec!["a".into(), "b".into()]);
+            let mut dirty_chunks = HashSet::new();
+
+            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+
+            assert_eq!(density.get(&(0, 0, 0)), Some(&vec!["b".to_string()]));
+        }
+
+        #[test]
+        fn test_marks_new_chunk_as_dirty_when_cell_changes() {
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((0, 0, 0), vec!["a".into()]);
+            let mut dirty_chunks = HashSet::new();
+
+            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+
+            assert!(dirty_chunks.contains(&(1, 0)));
         }
     }
 }
