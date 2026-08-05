@@ -65,7 +65,19 @@ impl GameWorld {
                         new_path.remove(0);
                     }
                     v.path = new_path;
-                
+            }
+
+            if v.path.is_empty() && !v.is_leaving {
+                let new_target = self.park_map.random_walkable_cell(old_cell).unwrap_or(old_cell);
+                v.target = new_target;
+                let mut new_path = self.park_map
+                    .find_path(old_cell, new_target)
+                    .map(|(p, _)| p)
+                    .unwrap_or_default();
+                if !new_path.is_empty() {
+                    new_path.remove(0);
+                }
+                v.path = new_path;
             }
 
             if let Some(&next) = v.path.first() 
@@ -152,7 +164,7 @@ impl GameWorld {
 
         self.tick_count += 1;
 
-        if self.tick_count % SPAWN_INTERVAL_TICKS == 0 {
+        if self.tick_count.is_multiple_of(SPAWN_INTERVAL_TICKS) {
             self.spawn_visitor();
         }
     }
@@ -574,6 +586,52 @@ use super::*;
 
             world.tick(0.01); // atteint exactement SPAWN_INTERVAL_TICKS
             assert_eq!(world.visitors.len(), 1);
+        }
+
+        #[test]
+        fn test_tick_assigns_a_new_target_when_visitor_arrives_and_is_not_leaving() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![], // déjà arrivé
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            });
+
+            world.tick(0.01);
+
+            let visitor = &world.visitors[0];
+            assert_eq!(visitor.target, (1, 0, 0)); // seul autre candidat, déterministe
+            assert_eq!(visitor.path, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_tick_does_not_assign_new_target_when_visitor_is_leaving() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: true,
+            });
+            world.density.insert((0, 0, 0), vec!["a".into()]);
+
+            world.tick(0.01);
+
+            // Doit être despawné (path vide + is_leaving), pas recevoir une nouvelle cible.
+            assert!(world.visitors.is_empty());
         }
     }
 }
