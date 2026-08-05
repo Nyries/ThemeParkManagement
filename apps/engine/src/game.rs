@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}};
 
-use crate::{map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
+use crate::{balance::SPAWN_INTERVAL_TICKS, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
 #[derive(Debug, Default)]
 pub struct ParkMetricsAccumulator {
@@ -53,8 +53,8 @@ impl GameWorld {
                 v.position.2.round() as i32,
             );
 
-            if let Some(exit) = exit {
-                if v.has_expired() && !v.is_leaving {
+            if let Some(exit) = exit
+                && v.has_expired() && !v.is_leaving {
                     v.is_leaving = true;
                     v.target = exit;
                     let mut new_path = self.park_map
@@ -65,7 +65,7 @@ impl GameWorld {
                         new_path.remove(0);
                     }
                     v.path = new_path;
-                }
+                
             }
 
             if let Some(&next) = v.path.first() 
@@ -151,6 +151,10 @@ impl GameWorld {
         self.metrics.visitors_in_park = self.visitors.len();
 
         self.tick_count += 1;
+
+        if self.tick_count % SPAWN_INTERVAL_TICKS == 0 {
+            self.spawn_visitor();
+        }
     }
 
     pub fn spawn_visitor(&mut self) {
@@ -553,10 +557,23 @@ use super::*;
             world.tick(0.01);
 
             assert!(world.visitors.is_empty());
-            assert!(world.density.get(&(0, 0, 0)).is_none());
+            assert!(!world.density.contains_key(&(0, 0, 0)));
             assert_eq!(world.metrics.visitors_exited, 1);
         }
 
-    }
+        #[test]
+        fn test_tick_spawns_a_visitor_every_spawn_interval() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
+            for _ in 0..SPAWN_INTERVAL_TICKS - 1 {
+                world.tick(0.01);
+            }
+            assert!(world.visitors.is_empty(), "no spawn before the interval is reached");
+
+            world.tick(0.01); // atteint exactement SPAWN_INTERVAL_TICKS
+            assert_eq!(world.visitors.len(), 1);
+        }
+    }
 }
