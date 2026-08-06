@@ -7,6 +7,7 @@ import cors from "cors";
 import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pkg from "pg";
+import { registerCommandHandlers } from "./socket";
 
 const { Pool } = pkg;
 
@@ -27,17 +28,7 @@ const io = new Server(httpServer, {
   },
 });
 
-io.on("connection", (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-
-  socket.on("command", (message) => {
-    console.log("Received command: ", message);
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`Client disconnected: ${socket.id}`);
-  });
-});
+registerCommandHandlers(io);
 
 app.get("/health", async (req, res) => {
   try {
