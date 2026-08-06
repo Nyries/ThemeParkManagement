@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@app/shared-types": "workspace:*",
     "pixi.js": "^8.19.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
