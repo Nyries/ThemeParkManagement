@@ -1,5 +1,5 @@
 import type { CommandRequest, CommandResponse } from "@app/shared-types";
-import type { WorldStateResponse } from "@app/shared-types/grpc";
+import type { MapResponse, WorldStateResponse } from "@app/shared-types/grpc";
 import { useCallback, useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
@@ -46,5 +46,16 @@ export function useParkSocket() {
     [],
   );
 
-  return { sendCommand, onWorldState };
+  const onMap = useCallback((): Promise<MapResponse> => {
+    return new Promise((resolve, reject) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        reject(new Error("Socket not connected"));
+        return;
+      }
+      socket.once("map", resolve);
+    });
+  }, []);
+
+  return { sendCommand, onWorldState, onMap };
 }
