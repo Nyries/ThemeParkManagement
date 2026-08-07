@@ -215,9 +215,17 @@ export interface StateRequest {
   parkId: string;
 }
 
+export interface VisitorState {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface WorldStateResponse {
   tickCount: number;
   dirtyChunksJson: string;
+  visitors: VisitorState[];
 }
 
 function createBaseCoord(): Coord {
@@ -1086,8 +1094,116 @@ export const StateRequest: MessageFns<StateRequest> = {
   },
 };
 
+function createBaseVisitorState(): VisitorState {
+  return { id: "", x: 0, y: 0, z: 0 };
+}
+
+export const VisitorState: MessageFns<VisitorState> = {
+  encode(message: VisitorState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.x !== 0) {
+      writer.uint32(21).float(message.x);
+    }
+    if (message.y !== 0) {
+      writer.uint32(29).float(message.y);
+    }
+    if (message.z !== 0) {
+      writer.uint32(37).float(message.z);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): VisitorState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseVisitorState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 21) {
+            break;
+          }
+
+          message.x = reader.float();
+          continue;
+        }
+        case 3: {
+          if (tag !== 29) {
+            break;
+          }
+
+          message.y = reader.float();
+          continue;
+        }
+        case 4: {
+          if (tag !== 37) {
+            break;
+          }
+
+          message.z = reader.float();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): VisitorState {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      x: isSet(object.x) ? globalThis.Number(object.x) : 0,
+      y: isSet(object.y) ? globalThis.Number(object.y) : 0,
+      z: isSet(object.z) ? globalThis.Number(object.z) : 0,
+    };
+  },
+
+  toJSON(message: VisitorState): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.x !== 0) {
+      obj.x = message.x;
+    }
+    if (message.y !== 0) {
+      obj.y = message.y;
+    }
+    if (message.z !== 0) {
+      obj.z = message.z;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<VisitorState>, I>>(base?: I): VisitorState {
+    return VisitorState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<VisitorState>, I>>(object: I): VisitorState {
+    const message = createBaseVisitorState();
+    message.id = object.id ?? "";
+    message.x = object.x ?? 0;
+    message.y = object.y ?? 0;
+    message.z = object.z ?? 0;
+    return message;
+  },
+};
+
 function createBaseWorldStateResponse(): WorldStateResponse {
-  return { tickCount: 0, dirtyChunksJson: "" };
+  return { tickCount: 0, dirtyChunksJson: "", visitors: [] };
 }
 
 export const WorldStateResponse: MessageFns<WorldStateResponse> = {
@@ -1097,6 +1213,9 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     }
     if (message.dirtyChunksJson !== "") {
       writer.uint32(18).string(message.dirtyChunksJson);
+    }
+    for (const v of message.visitors) {
+      VisitorState.encode(v!, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -1124,6 +1243,14 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
           message.dirtyChunksJson = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.visitors.push(VisitorState.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1145,6 +1272,9 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
         : isSet(object.dirty_chunks_json)
         ? globalThis.String(object.dirty_chunks_json)
         : "",
+      visitors: globalThis.Array.isArray(object?.visitors)
+        ? object.visitors.map((e: any) => VisitorState.fromJSON(e))
+        : [],
     };
   },
 
@@ -1156,6 +1286,9 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     if (message.dirtyChunksJson !== "") {
       obj.dirtyChunksJson = message.dirtyChunksJson;
     }
+    if (message.visitors?.length) {
+      obj.visitors = message.visitors.map((e) => VisitorState.toJSON(e));
+    }
     return obj;
   },
 
@@ -1166,6 +1299,7 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     const message = createBaseWorldStateResponse();
     message.tickCount = object.tickCount ?? 0;
     message.dirtyChunksJson = object.dirtyChunksJson ?? "";
+    message.visitors = object.visitors?.map((e) => VisitorState.fromPartial(e)) || [];
     return message;
   },
 };

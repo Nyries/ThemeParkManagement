@@ -15,6 +15,7 @@ import {
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
 import { placeInfrastructureAt } from "../park/placeInfrastructure";
+import { syncVisitorGraphics } from "../park/syncVisitors";
 
 const PARK_ID = "default";
 
@@ -22,7 +23,7 @@ export function Park() {
   const terrain = useMemo(() => generateMockTerrain(), []);
   const infrastructure = useMemo(() => generateMockInfrastructure(), []);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { sendCommand } = useParkSocket();
+  const { sendCommand, onWorldState } = useParkSocket();
 
   useEffect(() => {
     const app = new Application();
@@ -32,6 +33,8 @@ export function Park() {
       { length: terrain.length },
       () => [],
     );
+    const visitorGraphics = new Map<string, Graphics>();
+    let unsubscribeWorldState: (() => void) | null = null;
 
     async function handleCellClick(x: number, y: number) {
       const response = await placeInfrastructureAt(sendCommand, PARK_ID, x, y);
@@ -99,14 +102,19 @@ export function Park() {
           label.y = toScreenY(y);
           app.stage.addChild(label);
         }
+
+        unsubscribeWorldState = onWorldState((state) => {
+          syncVisitorGraphics(app.stage, visitorGraphics, state.visitors);
+        });
       });
     return () => {
       cancelled = true;
+      unsubscribeWorldState?.();
       if (initialized) {
         app.destroy(true, { children: true });
       }
     };
-  }, [terrain, infrastructure, sendCommand]);
+  }, [terrain, infrastructure, sendCommand, onWorldState]);
 
   return (
     <div

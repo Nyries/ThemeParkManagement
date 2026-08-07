@@ -83,7 +83,15 @@ message StateRequest {
   string park_id = 1;
 }
 
+message VisitorState {
+  string id = 1;
+  float x = 2;
+  float y = 3;
+  float z = 4;
+}
+
 message WorldStateResponse {
   uint64 tick_count = 1;
   string dirty_chunks_json = 2;
+  repeated VisitorState visitors = 3;
 }

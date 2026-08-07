@@ -1,6 +1,10 @@
 import { CommandRequest, CommandResponse } from "@app/shared-types";
 import { Server } from "socket.io";
 import { dispatchCommand } from "./services/commandHandler";
+import { subscribeToEngineStream } from "./services/engineClient";
+import { shouldRelay } from "./services/relayThrottle";
+
+const PARK_ID = "default";
 
 export function registerCommandHandlers(io: Server) {
   io.on("connection", (socket) => {
@@ -17,7 +21,20 @@ export function registerCommandHandlers(io: Server) {
       },
     );
 
+    const call = subscribeToEngineStream(
+      PARK_ID,
+      (state) => {
+        if (shouldRelay(state.tickCount, state.visitors.length)) {
+          socket.emit("worldState", state);
+        }
+      },
+      (err) => {
+        console.error("Engine stream error: ", err);
+      },
+    );
+
     socket.on("disconnect", () => {
+      call.cancel();
       console.log(`Client disconnected: ${socket.id}`);
     });
   });
