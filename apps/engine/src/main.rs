@@ -3,7 +3,7 @@ use engine::game::GameWorld;
 use engine::service::SimulationEngineService;
 use engine::map_template::{MapSource, MapTemplate};
 use engine::simulation::simulation_service_server::SimulationServiceServer;
-use engine::simulation::WorldStateResponse;
+use engine::simulation::{VisitorState, WorldStateResponse};
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -33,10 +33,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let start = Instant::now();
 
             let current_tick;
+            let visitors;
             {
                 let mut w = world_clone.lock().unwrap();
                 w.tick(TICK_INTERVAL);
                 current_tick = w.tick_count;
+
+                visitors = w.visitors.iter().map(|v| VisitorState {
+                    id: v.id.clone(),
+                    x: v.position.0,
+                    y: v.position.1,
+                    z: v.position.2,
+                }).collect();
         
                 if current_tick % 100 == 0 {
                     println!("Tick de simulation en cours... Actuel: {}", current_tick);
@@ -46,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = broadcaster.send(WorldStateResponse {
                 tick_count: current_tick,
                 dirty_chunks_json: "{}".into(),
+                visitors,
             });
 
             let elapsed = start.elapsed();
