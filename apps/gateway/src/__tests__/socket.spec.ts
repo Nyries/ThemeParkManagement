@@ -131,4 +131,25 @@ describe("registerCommandHandlers (integration)", () => {
 
     expect(mockCall.cancel).toHaveBeenCalled();
   });
+  it("fetches and relays the map to the connecting client", async () => {
+    const map = {
+      minX: 0,
+      maxX: 9,
+      minY: 0,
+      maxY: 7,
+      terrain: [],
+      infrastructure: [],
+      entrance: undefined,
+    };
+    mockGetMap.mockResolvedValueOnce(map);
+
+    const port = (httpServer.address() as AddressInfo).port;
+    const thirdClient = ioClient(`http://localhost:${port}`);
+
+    const received = new Promise((resolve) => thirdClient.once("map", resolve));
+    await new Promise<void>((resolve) => thirdClient.on("connect", resolve));
+
+    await expect(received).resolves.toEqual(map);
+    thirdClient.close();
+  });
 });
