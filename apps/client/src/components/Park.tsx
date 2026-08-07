@@ -7,7 +7,7 @@ import {
 import { Application, Graphics, Text } from "pixi.js";
 import { CANVAS_HEIGHT, CANVAS_WIDTH, CELL_SIZE, getCellColor, toScreenX, toScreenY } from "../rendering/grid";
 
-export function ParkCanvas() {
+export function Park() {
   const terrain = generateMockTerrain();
   const infrastructure = generateMockInfrastructure();
   const containerRef = useRef<HTMLDivElement>(null);
