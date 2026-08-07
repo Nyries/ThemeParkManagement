@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   generateMockInfrastructure,
   generateMockTerrain,
@@ -14,13 +14,13 @@ import {
   toScreenY,
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
-import { InfrastructureKind, type CommandRequest } from "@app/shared-types";
+import { placeInfrastructureAt } from "../park/placeInfrastructure";
 
 const PARK_ID = "default";
 
 export function Park() {
-  const terrain = generateMockTerrain();
-  const infrastructure = generateMockInfrastructure();
+  const terrain = useMemo(() => generateMockTerrain(), []);
+  const infrastructure = useMemo(() => generateMockInfrastructure(), []);
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendCommand } = useParkSocket();
 
@@ -34,19 +34,7 @@ export function Park() {
     );
 
     async function handleCellClick(x: number, y: number) {
-      const request: CommandRequest = {
-        parkId: PARK_ID,
-        command: {
-          $case: "placeInfrastructure",
-          placeInfrastructure: {
-            kind: InfrastructureKind.INFRASTRUCTURE_KIND_PATH,
-            toZ: 0,
-            coordinates: [{ x, y, z: 0 }],
-          },
-        },
-      };
-
-      const response = await sendCommand(request);
+      const response = await placeInfrastructureAt(sendCommand, PARK_ID, x, y);
       if (!response.success) {
         console.error("Failed to place infrastructure: ", response.message);
         return;
@@ -118,7 +106,7 @@ export function Park() {
         app.destroy(true, { children: true });
       }
     };
-  }, []);
+  }, [terrain, infrastructure, sendCommand]);
 
   return (
     <div
