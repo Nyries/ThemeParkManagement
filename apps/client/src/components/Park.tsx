@@ -2,20 +2,66 @@ import { useEffect, useRef } from "react";
 import {
   generateMockInfrastructure,
   generateMockTerrain,
-  HEIGHT as GRID_HEIGHT
+  HEIGHT as GRID_HEIGHT,
 } from "../mocks/mockMap";
 import { Application, Graphics, Text } from "pixi.js";
-import { CANVAS_HEIGHT, CANVAS_WIDTH, CELL_SIZE, getCellColor, toScreenX, toScreenY } from "../rendering/grid";
+import {
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
+  CELL_SIZE,
+  getCellColor,
+  toScreenX,
+  toScreenY,
+} from "../rendering/grid";
+import { useParkSocket } from "../hooks/useParkSocket";
+import { InfrastructureKind, type CommandRequest } from "@app/shared-types";
+
+const PARK_ID = "default";
 
 export function Park() {
   const terrain = generateMockTerrain();
   const infrastructure = generateMockInfrastructure();
   const containerRef = useRef<HTMLDivElement>(null);
+  const { sendCommand } = useParkSocket();
 
   useEffect(() => {
     const app = new Application();
     let cancelled = false;
     let initialized = false;
+    const cellGraphics: Graphics[][] = Array.from(
+      { length: terrain.length },
+      () => [],
+    );
+
+    async function handleCellClick(x: number, y: number) {
+      const request: CommandRequest = {
+        parkId: PARK_ID,
+        command: {
+          $case: "placeInfrastructure",
+          placeInfrastructure: {
+            kind: InfrastructureKind.INFRASTRUCTURE_KIND_PATH,
+            toZ: 0,
+            coordinates: [{ x, y, z: 0 }],
+          },
+        },
+      };
+
+      const response = await sendCommand(request);
+      if (!response.success) {
+        console.error("Failed to place infrastructure: ", response.message);
+        return;
+      }
+
+      infrastructure[y][x] = "path";
+      const cell = cellGraphics[y][x];
+      cell.clear();
+      cell
+        .rect(toScreenX(x), toScreenY(y), CELL_SIZE, CELL_SIZE)
+        .fill(getCellColor(x, y, terrain, infrastructure))
+        .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+      cell.eventMode = "none";
+      cell.cursor = "default";
+    }
 
     app
       .init({
@@ -33,14 +79,17 @@ export function Park() {
           for (let x = 0; x < terrain[y].length; x++) {
             const color = getCellColor(x, y, terrain, infrastructure);
             const cell = new Graphics()
-              .rect(
-                toScreenX(x),
-                toScreenY(y),
-                CELL_SIZE,
-                CELL_SIZE,
-              )
+              .rect(toScreenX(x), toScreenY(y), CELL_SIZE, CELL_SIZE)
               .fill(color)
               .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+
+            if (infrastructure[y][x] === null) {
+              cell.eventMode = "static";
+              cell.cursor = "pointer";
+              cell.on("pointertap", () => handleCellClick(x, y));
+            }
+
+            cellGraphics[y][x] = cell;
             app.stage.addChild(cell);
           }
         }
