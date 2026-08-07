@@ -6,8 +6,8 @@ const { mockSendCommand, mockStreamState } = vi.hoisted(() => ({
   mockStreamState: vi.fn(),
 }));
 
-vi.mock('@app/shared-types', async () => {
-  const actual = await vi.importActual<typeof import('@app/shared-types')>('@app/shared-types');
+vi.mock('@app/shared-types/grpc', async () => {
+  const actual = await vi.importActual<typeof import('@app/shared-types/grpc')>('@app/shared-types/grpc');
   return {
     ...actual,
     SimulationServiceClient: class {
