@@ -1,5 +1,5 @@
 import type { CommandRequest, CommandResponse } from "@app/shared-types";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
 const GATEWAY_URL = "http://localhost:4000";
@@ -17,7 +17,7 @@ export function useParkSocket() {
     };
   }, []);
 
-  function sendCommand(request: CommandRequest): Promise<CommandResponse> {
+  const sendCommand = useCallback((request: CommandRequest): Promise<CommandResponse> => {
     return new Promise((resolve, reject) => {
       const socket = socketRef.current;
       if (!socket) {
@@ -26,7 +26,7 @@ export function useParkSocket() {
       }
       socket.emit("command", request, resolve);
     });
-  }
+  }, [])
 
   return {sendCommand };
 }
