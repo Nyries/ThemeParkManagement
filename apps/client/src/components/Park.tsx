@@ -15,10 +15,9 @@ import {
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
 import { placeInfrastructureAt } from "../park/placeInfrastructure";
+import { syncVisitorGraphics } from "../park/syncVisitors";
 
 const PARK_ID = "default";
-const VISITOR_RADIUS = CELL_SIZE / 4;
-const VISITOR_COLOR = 0xff4444;
 
 export function Park() {
   const terrain = useMemo(() => generateMockTerrain(), []);
@@ -105,32 +104,7 @@ export function Park() {
         }
 
         unsubscribeWorldState = onWorldState((state) => {
-          const presentIds = new Set(state.visitors.map((v) => v.id));
-          
-          for (const visitor of state.visitors) {
-            const screenX = toScreenX(visitor.x) + CELL_SIZE / 2;
-            const screenY = toScreenY(visitor.y) + CELL_SIZE / 2;
-
-            let sprite = visitorGraphics.get(visitor.id);
-            if (!sprite) {
-              sprite = new Graphics()
-                .circle(0, 0, VISITOR_RADIUS)
-                .fill(VISITOR_COLOR);
-              visitorGraphics.set(visitor.id, sprite);
-              app.stage.addChild(sprite);
-            }
-
-            sprite.x = screenX;
-            sprite.y = screenY;
-          }
-
-          for (const [id, sprite] of visitorGraphics) {
-            if (!presentIds.has(id)) {
-              app.stage.removeChild(sprite);
-              sprite.destroy()
-              visitorGraphics.delete(id);
-            }
-          }
+          syncVisitorGraphics(app.stage, visitorGraphics, state.visitors);
         });
       });
     return () => {
