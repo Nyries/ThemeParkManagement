@@ -1,5 +1,4 @@
 import type { InfrastructureKind, TerrainMaterial } from "../mocks/mockMap";
-import { WIDTH as GRID_WIDTH, HEIGHT as GRID_HEIGHT} from '../mocks/mockMap';
 
 export const CELL_SIZE = 16;
 export const MARGIN_SIZE = 20;
