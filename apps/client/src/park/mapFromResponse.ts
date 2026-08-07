@@ -1,5 +1,5 @@
-import type { MapResponse } from "@app/shared-types/grpc";
-import { InfrastructureKind as ProtoInfrastructureKind } from "@app/shared-types/grpc";
+import type { MapResponse } from "@app/shared-types";
+import { InfrastructureKind as ProtoInfrastructureKind } from "@app/shared-types";
 import type { InfrastructureKind, TerrainMaterial } from "../mocks/mockMap";
 
 export interface ParkGrid {
