@@ -6,9 +6,9 @@ import {
   PlaceInfrastructure,
   RemoveBuilding,
   RemoveInfrastructure,
-  SimulationServiceClient,
   WorldStateResponse,
 } from "@app/shared-types";
+import { SimulationServiceClient } from "@app/shared-types/grpc"
 
 
 const ENGINE_URL = process.env.ENGINE_GRPC_URL || "localhost:50051";
