@@ -242,6 +242,27 @@ export interface WorldStateResponse {
   visitors: VisitorState[];
 }
 
+export interface TerrainCell {
+  coord: Coord | undefined;
+  materialId: string;
+}
+
+export interface InfrastructureCell {
+  coord: Coord | undefined;
+  kind: InfrastructureKind;
+  toZ: number;
+}
+
+export interface MapResponse {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  terrain: TerrainCell[];
+  infrastructure: InfrastructureCell[];
+  entrance: Coord | undefined;
+}
+
 function createBaseCoord(): Coord {
   return { x: 0, y: 0, z: 0 };
 }
@@ -1318,6 +1339,356 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
   },
 };
 
+function createBaseTerrainCell(): TerrainCell {
+  return { coord: undefined, materialId: "" };
+}
+
+export const TerrainCell: MessageFns<TerrainCell> = {
+  encode(message: TerrainCell, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.coord !== undefined) {
+      Coord.encode(message.coord, writer.uint32(10).fork()).join();
+    }
+    if (message.materialId !== "") {
+      writer.uint32(18).string(message.materialId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TerrainCell {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTerrainCell();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.coord = Coord.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.materialId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TerrainCell {
+    return {
+      coord: isSet(object.coord) ? Coord.fromJSON(object.coord) : undefined,
+      materialId: isSet(object.materialId)
+        ? globalThis.String(object.materialId)
+        : isSet(object.material_id)
+        ? globalThis.String(object.material_id)
+        : "",
+    };
+  },
+
+  toJSON(message: TerrainCell): unknown {
+    const obj: any = {};
+    if (message.coord !== undefined) {
+      obj.coord = Coord.toJSON(message.coord);
+    }
+    if (message.materialId !== "") {
+      obj.materialId = message.materialId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TerrainCell>, I>>(base?: I): TerrainCell {
+    return TerrainCell.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TerrainCell>, I>>(object: I): TerrainCell {
+    const message = createBaseTerrainCell();
+    message.coord = (object.coord !== undefined && object.coord !== null) ? Coord.fromPartial(object.coord) : undefined;
+    message.materialId = object.materialId ?? "";
+    return message;
+  },
+};
+
+function createBaseInfrastructureCell(): InfrastructureCell {
+  return { coord: undefined, kind: 0, toZ: 0 };
+}
+
+export const InfrastructureCell: MessageFns<InfrastructureCell> = {
+  encode(message: InfrastructureCell, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.coord !== undefined) {
+      Coord.encode(message.coord, writer.uint32(10).fork()).join();
+    }
+    if (message.kind !== 0) {
+      writer.uint32(16).int32(message.kind);
+    }
+    if (message.toZ !== 0) {
+      writer.uint32(24).int32(message.toZ);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InfrastructureCell {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInfrastructureCell();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.coord = Coord.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.toZ = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): InfrastructureCell {
+    return {
+      coord: isSet(object.coord) ? Coord.fromJSON(object.coord) : undefined,
+      kind: isSet(object.kind) ? infrastructureKindFromJSON(object.kind) : 0,
+      toZ: isSet(object.toZ) ? globalThis.Number(object.toZ) : isSet(object.to_z) ? globalThis.Number(object.to_z) : 0,
+    };
+  },
+
+  toJSON(message: InfrastructureCell): unknown {
+    const obj: any = {};
+    if (message.coord !== undefined) {
+      obj.coord = Coord.toJSON(message.coord);
+    }
+    if (message.kind !== 0) {
+      obj.kind = infrastructureKindToJSON(message.kind);
+    }
+    if (message.toZ !== 0) {
+      obj.toZ = Math.round(message.toZ);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<InfrastructureCell>, I>>(base?: I): InfrastructureCell {
+    return InfrastructureCell.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InfrastructureCell>, I>>(object: I): InfrastructureCell {
+    const message = createBaseInfrastructureCell();
+    message.coord = (object.coord !== undefined && object.coord !== null) ? Coord.fromPartial(object.coord) : undefined;
+    message.kind = object.kind ?? 0;
+    message.toZ = object.toZ ?? 0;
+    return message;
+  },
+};
+
+function createBaseMapResponse(): MapResponse {
+  return { minX: 0, maxX: 0, minY: 0, maxY: 0, terrain: [], infrastructure: [], entrance: undefined };
+}
+
+export const MapResponse: MessageFns<MapResponse> = {
+  encode(message: MapResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.minX !== 0) {
+      writer.uint32(8).int32(message.minX);
+    }
+    if (message.maxX !== 0) {
+      writer.uint32(16).int32(message.maxX);
+    }
+    if (message.minY !== 0) {
+      writer.uint32(24).int32(message.minY);
+    }
+    if (message.maxY !== 0) {
+      writer.uint32(32).int32(message.maxY);
+    }
+    for (const v of message.terrain) {
+      TerrainCell.encode(v!, writer.uint32(42).fork()).join();
+    }
+    for (const v of message.infrastructure) {
+      InfrastructureCell.encode(v!, writer.uint32(50).fork()).join();
+    }
+    if (message.entrance !== undefined) {
+      Coord.encode(message.entrance, writer.uint32(58).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MapResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMapResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.minX = reader.int32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.maxX = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.minY = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.maxY = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.terrain.push(TerrainCell.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.infrastructure.push(InfrastructureCell.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.entrance = Coord.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MapResponse {
+    return {
+      minX: isSet(object.minX)
+        ? globalThis.Number(object.minX)
+        : isSet(object.min_x)
+        ? globalThis.Number(object.min_x)
+        : 0,
+      maxX: isSet(object.maxX)
+        ? globalThis.Number(object.maxX)
+        : isSet(object.max_x)
+        ? globalThis.Number(object.max_x)
+        : 0,
+      minY: isSet(object.minY)
+        ? globalThis.Number(object.minY)
+        : isSet(object.min_y)
+        ? globalThis.Number(object.min_y)
+        : 0,
+      maxY: isSet(object.maxY)
+        ? globalThis.Number(object.maxY)
+        : isSet(object.max_y)
+        ? globalThis.Number(object.max_y)
+        : 0,
+      terrain: globalThis.Array.isArray(object?.terrain)
+        ? object.terrain.map((e: any) => TerrainCell.fromJSON(e))
+        : [],
+      infrastructure: globalThis.Array.isArray(object?.infrastructure)
+        ? object.infrastructure.map((e: any) => InfrastructureCell.fromJSON(e))
+        : [],
+      entrance: isSet(object.entrance) ? Coord.fromJSON(object.entrance) : undefined,
+    };
+  },
+
+  toJSON(message: MapResponse): unknown {
+    const obj: any = {};
+    if (message.minX !== 0) {
+      obj.minX = Math.round(message.minX);
+    }
+    if (message.maxX !== 0) {
+      obj.maxX = Math.round(message.maxX);
+    }
+    if (message.minY !== 0) {
+      obj.minY = Math.round(message.minY);
+    }
+    if (message.maxY !== 0) {
+      obj.maxY = Math.round(message.maxY);
+    }
+    if (message.terrain?.length) {
+      obj.terrain = message.terrain.map((e) => TerrainCell.toJSON(e));
+    }
+    if (message.infrastructure?.length) {
+      obj.infrastructure = message.infrastructure.map((e) => InfrastructureCell.toJSON(e));
+    }
+    if (message.entrance !== undefined) {
+      obj.entrance = Coord.toJSON(message.entrance);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MapResponse>, I>>(base?: I): MapResponse {
+    return MapResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MapResponse>, I>>(object: I): MapResponse {
+    const message = createBaseMapResponse();
+    message.minX = object.minX ?? 0;
+    message.maxX = object.maxX ?? 0;
+    message.minY = object.minY ?? 0;
+    message.maxY = object.maxY ?? 0;
+    message.terrain = object.terrain?.map((e) => TerrainCell.fromPartial(e)) || [];
+    message.infrastructure = object.infrastructure?.map((e) => InfrastructureCell.fromPartial(e)) || [];
+    message.entrance = (object.entrance !== undefined && object.entrance !== null)
+      ? Coord.fromPartial(object.entrance)
+      : undefined;
+    return message;
+  },
+};
+
 export type SimulationServiceService = typeof SimulationServiceService;
 export const SimulationServiceService = {
   sendCommand: {
@@ -1338,11 +1709,21 @@ export const SimulationServiceService = {
     responseSerialize: (value: WorldStateResponse): Buffer => Buffer.from(WorldStateResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): WorldStateResponse => WorldStateResponse.decode(value),
   },
+  getMap: {
+    path: "/simulation.SimulationService/GetMap" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: StateRequest): Buffer => Buffer.from(StateRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): StateRequest => StateRequest.decode(value),
+    responseSerialize: (value: MapResponse): Buffer => Buffer.from(MapResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): MapResponse => MapResponse.decode(value),
+  },
 } as const;
 
 export interface SimulationServiceServer extends UntypedServiceImplementation {
   sendCommand: handleUnaryCall<CommandRequest, CommandResponse>;
   streamState: handleServerStreamingCall<StateRequest, WorldStateResponse>;
+  getMap: handleUnaryCall<StateRequest, MapResponse>;
 }
 
 export interface SimulationServiceClient extends Client {
@@ -1367,6 +1748,18 @@ export interface SimulationServiceClient extends Client {
     metadata?: Metadata,
     options?: Partial<CallOptions>,
   ): ClientReadableStream<WorldStateResponse>;
+  getMap(request: StateRequest, callback: (error: ServiceError | null, response: MapResponse) => void): ClientUnaryCall;
+  getMap(
+    request: StateRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: MapResponse) => void,
+  ): ClientUnaryCall;
+  getMap(
+    request: StateRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: MapResponse) => void,
+  ): ClientUnaryCall;
 }
 
 export const SimulationServiceClient = makeGenericClientConstructor(
