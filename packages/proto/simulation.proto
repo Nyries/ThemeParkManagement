@@ -5,6 +5,7 @@ package simulation;
 service SimulationService {
     rpc SendCommand (CommandRequest) returns (CommandResponse);
     rpc StreamState (StateRequest) returns (stream WorldStateResponse);
+    rpc GetMap (StateRequest) returns (MapResponse);
 }
 
 message Coord {
@@ -94,4 +95,26 @@ message WorldStateResponse {
   uint64 tick_count = 1;
   string dirty_chunks_json = 2;
   repeated VisitorState visitors = 3;
+}
+
+message TerrainCell {
+  Coord coord = 1;
+  string material_id = 2;
+}
+
+message InfrastructureCell {
+  Coord coord = 1;
+  InfrastructureKind kind = 2;
+  int32 to_z = 3;
+}
+
+message MapResponse {
+  int32 min_x = 1;
+  int32 max_x = 2;
+  int32 min_y = 3;
+  int32 max_y = 4;
+  repeated TerrainCell terrain = 5;
+  repeated InfrastructureCell infrastructure = 6;
+  Coord entrance = 7;
+  
 }

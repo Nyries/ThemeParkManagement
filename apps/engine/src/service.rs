@@ -7,7 +7,8 @@ use tonic::{Request, Response, Status};
 use crate::simulation::{
     simulation_service_server:: SimulationService, 
     CommandRequest, CommandResponse, StateRequest, WorldStateResponse,
-    command_request::Command, ErrorCode, InfrastructureKind
+    command_request::Command, ErrorCode, InfrastructureKind,
+    Coord, TerrainCell, InfrastructureCell, MapResponse
 };
 
 
@@ -182,6 +183,46 @@ impl SimulationService for SimulationEngineService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn get_map(
+        &self,
+        _request: Request<StateRequest>,
+    ) -> Result<Response<MapResponse>, Status> {
+        let world = self.world.lock().unwrap();
+        let map = &world.park_map;
+
+        let terrain = map.terrain.iter().map(|(&(x, y, z), material_id)| {
+            TerrainCell {
+                coord: Some(Coord { x, y, z }),
+                material_id: material_id.clone(),
+            }
+        }).collect();
+
+        let infrastructure = map.infrastructure.iter().map(|(&(x, y, z), shape)| {
+            let (kind, to_z) = match shape {
+                InfrastructureShape::Path => (InfrastructureKind::Path, 0),
+                InfrastructureShape::Ramp { to_z } => (InfrastructureKind::Ramp, *to_z ),
+                InfrastructureShape::Stairs { to_z } => (InfrastructureKind::Stairs, *to_z),
+            };
+            InfrastructureCell {
+                coord: Some(Coord { x, y, z }),
+                kind: kind as i32,
+                to_z,
+            }
+        }).collect();
+
+        let entrance = map.entrance.map(|(x, y, z)| Coord { x, y, z });
+
+        Ok(Response::new(MapResponse { 
+            min_x: map.bounds.min_x, 
+            max_x: map.bounds.max_x,
+            min_y: map.bounds.min_y,
+            max_y: map.bounds.max_y,
+            terrain,
+            infrastructure,
+            entrance 
+        }))
     }
 }
 

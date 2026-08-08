@@ -2,6 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import {
   ApplyTerrain,
   CommandResponse,
+  MapResponse,
   PlaceBuilding,
   PlaceInfrastructure,
   RemoveBuilding,
@@ -127,4 +128,13 @@ export function subscribeToEngineStream(
   });
 
   return call;
+}
+
+export function getMap(parkId: string): Promise<MapResponse> {
+  return new Promise((resolve, reject) => {
+    engineClient.getMap({ parkId }, (error: grpc.ServiceError | null, response: MapResponse) => {
+      if (error) reject(error);
+      else resolve(response);
+    })
+  })
 }

@@ -1,12 +1,15 @@
 import type { InfrastructureKind, TerrainMaterial } from "../mocks/mockMap";
-import { WIDTH as GRID_WIDTH, HEIGHT as GRID_HEIGHT} from '../mocks/mockMap';
 
 export const CELL_SIZE = 16;
 export const MARGIN_SIZE = 20;
 
-export const CANVAS_WIDTH = MARGIN_SIZE + GRID_WIDTH * CELL_SIZE;
-export const CANVAS_HEIGHT = MARGIN_SIZE + GRID_HEIGHT * CELL_SIZE;
+export function canvasWidth(gridWidth: number): number {
+  return MARGIN_SIZE + gridWidth * CELL_SIZE;
+}
 
+export function canvasHeight(gridHeight: number): number {
+  return MARGIN_SIZE + gridHeight * CELL_SIZE;
+}
 export const TERRAIN_COLORS: Record<TerrainMaterial, number> = {
   grass: 0x4caf50,
   water: 0x2196f3,
@@ -18,8 +21,8 @@ export const INFRASTRUCTURE_COLORS: Record<InfrastructureKind, number> = {
   stairs: 0xd7b98e,
 };
 
-export function toScreenY(y: number): number {
-  return (GRID_HEIGHT - 1 - y) * CELL_SIZE;
+export function toScreenY(y: number, gridHeight: number): number {
+  return (gridHeight - 1 - y) * CELL_SIZE;
 }
 
 export function toScreenX(x: number): number {

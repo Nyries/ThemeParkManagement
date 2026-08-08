@@ -9,12 +9,13 @@ export function syncVisitorGraphics(
   stage: Container,
   visitorGraphics: Map<string, Graphics>,
   visitors: readonly VisitorState[],
+  gridHeight: number,
 ): void {
   const presentIds = new Set(visitors.map((v) => v.id));
 
   for (const visitor of visitors) {
     const screenX = toScreenX(visitor.x) + CELL_SIZE / 2;
-    const screenY = toScreenY(visitor.y) + CELL_SIZE / 2;
+    const screenY = toScreenY(visitor.y, gridHeight) + CELL_SIZE / 2;
 
     let sprite = visitorGraphics.get(visitor.id);
     if (!sprite) {

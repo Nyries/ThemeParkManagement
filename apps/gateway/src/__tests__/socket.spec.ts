@@ -1,13 +1,27 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+} from "vitest";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { Server } from "socket.io";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import type { CommandResponse, WorldStateResponse } from "@app/shared-types";
 
-const { mockDispatchCommand, mockSubscribeToEngineStream, mockCall } = vi.hoisted(() => ({
+const {
+  mockDispatchCommand,
+  mockSubscribeToEngineStream,
+  mockGetMap,
+  mockCall,
+} = vi.hoisted(() => ({
   mockDispatchCommand: vi.fn(),
   mockSubscribeToEngineStream: vi.fn(),
+  mockGetMap: vi.fn(),
   mockCall: { cancel: vi.fn() },
 }));
 
@@ -17,6 +31,7 @@ vi.mock("../services/commandHandler", () => ({
 
 vi.mock("../services/engineClient", () => ({
   subscribeToEngineStream: mockSubscribeToEngineStream,
+  getMap: mockGetMap,
 }));
 
 import { registerCommandHandlers } from "../socket";
@@ -27,6 +42,15 @@ describe("registerCommandHandlers (integration)", () => {
 
   beforeAll(async () => {
     mockSubscribeToEngineStream.mockReturnValue(mockCall);
+    mockGetMap.mockResolvedValue({
+      minX: 0,
+      maxX: 0,
+      minY: 0,
+      maxY: 0,
+      terrain: [],
+      infrastructure: [],
+      entrance: undefined,
+    });
 
     httpServer = createServer();
     const io = new Server(httpServer);
@@ -49,7 +73,11 @@ describe("registerCommandHandlers (integration)", () => {
   });
 
   it("dispatches the received command and acks the response back to the emitting client", async () => {
-    const mockResponse: CommandResponse = { success: true, message: "OK", errorCode: 0 };
+    const mockResponse: CommandResponse = {
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    };
     mockDispatchCommand.mockResolvedValue(mockResponse);
 
     const request = {
@@ -78,10 +106,16 @@ describe("registerCommandHandlers (integration)", () => {
   });
 
   it("relays a world state pushed by the engine to the client", async () => {
-    const state: WorldStateResponse = { tickCount: 0, dirtyChunksJson: "{}", visitors: [] };
+    const state: WorldStateResponse = {
+      tickCount: 0,
+      dirtyChunksJson: "{}",
+      visitors: [],
+    };
     const onTick = mockSubscribeToEngineStream.mock.calls[0][1];
 
-    const received = new Promise((resolve) => clientSocket.once("worldState", resolve));
+    const received = new Promise((resolve) =>
+      clientSocket.once("worldState", resolve),
+    );
     onTick(state);
 
     await expect(received).resolves.toEqual(state);
@@ -96,5 +130,26 @@ describe("registerCommandHandlers (integration)", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(mockCall.cancel).toHaveBeenCalled();
+  });
+  it("fetches and relays the map to the connecting client", async () => {
+    const map = {
+      minX: 0,
+      maxX: 9,
+      minY: 0,
+      maxY: 7,
+      terrain: [],
+      infrastructure: [],
+      entrance: undefined,
+    };
+    mockGetMap.mockResolvedValueOnce(map);
+
+    const port = (httpServer.address() as AddressInfo).port;
+    const thirdClient = ioClient(`http://localhost:${port}`);
+
+    const received = new Promise((resolve) => thirdClient.once("map", resolve));
+    await new Promise<void>((resolve) => thirdClient.on("connect", resolve));
+
+    await expect(received).resolves.toEqual(map);
+    thirdClient.close();
   });
 });
