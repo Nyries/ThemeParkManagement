@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let addr = "0.0.0.0.50051".parse()?;
+    let addr = "0.0.0.0:50051".parse()?;
     let service = SimulationEngineService {world, state_sender};
 
     println!("gRPC server of the engine started on port 50051");
