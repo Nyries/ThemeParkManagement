@@ -37,3 +37,21 @@ Run a one-off command without a persistent container:
 Follow a service's logs:
 
 `docker compose logs -f engine`
+
+## Engine dev commands
+
+The engine reads dev-only commands from its own terminal (stdin) — no player-facing UI, no gateway/client involvement. Useful to pause the simulation and inspect the park's state, or reset visitors while iterating on the map/build tools.
+
+Attach to the running engine container's stdin (`docker compose exec` won't work here — it opens a new process, not the one reading stdin):
+
+`docker attach themeparkmanagement-engine-1`
+
+(check the exact container name with `docker compose ps engine` if it differs)
+
+Then type one of:
+
+- `pause` — freezes the simulation (visitors stop moving, `tick_count` stops advancing)
+- `resume` — resumes ticking normally
+- `reset` — clears all visitors currently in the park (does not touch the map or `tick_count`)
+
+Detach without killing the process: `Ctrl+P` then `Ctrl+Q` (not `Ctrl+C`, which sends SIGINT and stops the engine).

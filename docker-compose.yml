@@ -19,6 +19,8 @@ services:
     build:
       context: .
       dockerfile: apps/engine/Dockerfile.dev
+    stdin_open: true
+    tty: true
     volumes:
       - .:/workspace
       - engine-target:/workspace/apps/engine/target

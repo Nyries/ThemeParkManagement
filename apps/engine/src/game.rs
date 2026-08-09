@@ -16,7 +16,8 @@ pub struct GameWorld {
     pub visitors: Vec<Visitor>,
     pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
     pub dirty_chunks: HashSet<(i32, i32)>,
-    pub metrics: ParkMetricsAccumulator
+    pub metrics: ParkMetricsAccumulator,
+    pub paused: bool,
 }
 
 impl Default for GameWorld {
@@ -37,6 +38,7 @@ impl GameWorld {
             density: HashMap::new(),
             dirty_chunks: HashSet::new(),
             metrics: ParkMetricsAccumulator::default(),
+            paused: false,
         }
     }
 
@@ -66,6 +68,9 @@ impl GameWorld {
 
     pub fn tick(&mut self, dt: f32) {
         // Real game loop of the core game
+        if self.paused {
+            return;
+        }
         self.dirty_chunks.clear();
         let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
         let exit = self.park_map.entrance;
@@ -120,6 +125,11 @@ impl GameWorld {
             .or_default()
             .push(id);
     } 
+
+    pub fn reset_visitors(&mut self) {
+        self.visitors.clear();
+        self.density.clear();
+    }
 }
 
 fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
@@ -942,4 +952,87 @@ use super::*;
             assert!(dirty_chunks.contains(&(1, 0)));
         }
     }
+        mod pause_resume {
+        use super::*;
+
+        #[test]
+        fn test_tick_does_nothing_when_paused() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world.spawn_visitor();
+            let position_before = world.visitors[0].position;
+
+            world.paused = true;
+            world.tick(0.1);
+            world.tick(0.1);
+
+            assert_eq!(world.tick_count, 0);
+            assert_eq!(world.visitors[0].position, position_before);
+        }
+
+        #[test]
+        fn test_tick_resumes_normally_after_being_unpaused() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world.spawn_visitor();
+
+            world.paused = true;
+            world.tick(0.1);
+            world.paused = false;
+            world.tick(0.1);
+
+            assert_eq!(world.tick_count, 1);
+        }
+    }
+
+    mod reset_visitors {
+        use super::*;
+
+        #[test]
+        fn test_reset_visitors_clears_visitors_and_density() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            });
+            world.density.insert((0, 0, 0), vec!["a".into()]);
+
+            world.reset_visitors();
+
+            assert!(world.visitors.is_empty());
+            assert!(world.density.is_empty());
+        }
+
+        #[test]
+        fn test_reset_visitors_does_not_touch_map_or_tick_count() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.tick_count = 42;
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![],
+                target: (0, 0, 0),
+                ticks_since_spawn: 0,
+                heading: (0.0, 0.0, 0.0),
+                is_leaving: false,
+            });
+
+            world.reset_visitors();
+
+            assert_eq!(world.tick_count, 42);
+            assert!(world.park_map.get_infrastructure(0, 0, 0).is_some());
+        }
+    }
+
 }
