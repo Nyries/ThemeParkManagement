@@ -7,5 +7,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.spec.{ts,tsx}',
+        'src/**/__tests__/**',
+        'src/main.tsx',
+      ],
+      thresholds: {
+        lines: 50
+      }
+    }
   },
 })
