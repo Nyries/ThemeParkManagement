@@ -64,6 +64,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let world_clone_stdin = Arc::clone(&world);
+    tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut lines = BufReader::new(tokio::io::stdin()).lines();
+        println!("Dev commands: pause | resume | reset");
+        while let Ok(Some(line)) = lines.next_line().await {
+            let mut w = world_clone_stdin.lock().unwrap();
+            match line.trim() {
+                "pause" => { w.paused = true; println!("Simulation paused."); }
+                "resume" => { w.paused = false; println!("Simulation resumed."); }
+                "reset" => { w.reset_visitors(); println!("Visitors reset."); }
+                other if !other.is_empty() => println!("Unknown command: {other}"),
+                _ => {}
+            }
+        }
+    });
+
     let addr = "0.0.0.0:50051".parse()?;
     let service = SimulationEngineService {world, state_sender};
 
