@@ -16,7 +16,8 @@ pub struct GameWorld {
     pub visitors: Vec<Visitor>,
     pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
     pub dirty_chunks: HashSet<(i32, i32)>,
-    pub metrics: ParkMetricsAccumulator
+    pub metrics: ParkMetricsAccumulator,
+    pub paused: bool,
 }
 
 impl Default for GameWorld {
@@ -37,6 +38,7 @@ impl GameWorld {
             density: HashMap::new(),
             dirty_chunks: HashSet::new(),
             metrics: ParkMetricsAccumulator::default(),
+            paused: false,
         }
     }
 
@@ -66,6 +68,9 @@ impl GameWorld {
 
     pub fn tick(&mut self, dt: f32) {
         // Real game loop of the core game
+        if self.paused {
+            return;
+        }
         self.dirty_chunks.clear();
         let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
         let exit = self.park_map.entrance;
@@ -120,6 +125,11 @@ impl GameWorld {
             .or_default()
             .push(id);
     } 
+
+    pub fn reset_visitors(&mut self) {
+        self.visitors.clear();
+        self.density.clear();
+    }
 }
 
 fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
