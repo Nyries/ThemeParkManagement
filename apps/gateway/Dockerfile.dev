@@ -6,4 +6,6 @@ WORKDIR /workspace
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "pnpm install --frozen-lockfile && pnpm --filter gateway dev"]
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN pnpm config set store-dir /pnpm-store
