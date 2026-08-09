@@ -80,24 +80,37 @@ jobs:
           name: gateway-coverage
           path: apps/gateway/coverage/
 
-  # build-front:
-  #   name: Build Front
-  #   runs-on: ubuntu-latest
+  test-client:
+    name: Test Client
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '20'
+      - name: Enable pnpm
+        run: corepack enable
 
-  #     - name: Enable pnpm
-  #       run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
 
-  #     - name: Install dependencies
-  #       run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-  #     - name: Build Front
-  #       run: pnpm --filter front build
+      - name: Generate shared proto types
+        run: pnpm --filter @app/shared-types run proto:gen
+
+      - name: Run ESLint (quality gate)
+        run: pnpm --filter client lint --max-warnings 0
+
+      - name: Run Client tests with coverage (quality gate)
+        run: pnpm --filter client coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-coverage
+          path: apps/client/coverage/
