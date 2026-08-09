@@ -1,0 +1,92 @@
+# docker-compose.yml (racine)
+services:
+  install:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile.dev
+    volumes:
+      - .:/workspace
+      - root-node-modules:/workspace/node_modules
+      - gateway-node-modules:/workspace/apps/gateway/node_modules
+      - client-node-modules:/workspace/apps/client/node_modules
+      - shared-types-node-modules:/workspace/packages/shared-types/node_modules
+      - pnpm-store:/pnpm-store
+    working_dir: /workspace
+    entrypoint: []
+    command: pnpm install --frozen-lockfile
+
+  engine:
+    build:
+      context: .
+      dockerfile: apps/engine/Dockerfile.dev
+    volumes:
+      - .:/workspace
+      - engine-target:/workspace/apps/engine/target
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: park
+      POSTGRES_PASSWORD: park
+      POSTGRES_DB: park
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U park"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile.dev
+    command: pnpm --filter gateway dev
+    volumes:
+      - .:/workspace
+      - root-node-modules:/workspace/node_modules
+      - gateway-node-modules:/workspace/apps/gateway/node_modules
+      - shared-types-node-modules:/workspace/packages/shared-types/node_modules
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - ENGINE_GRPC_URL=engine:50051
+      - DATABASE_URL=postgresql://park:park@postgres:5432/park
+    depends_on:
+      install:
+        condition: service_completed_successfully
+      engine:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  client:
+    build:
+      context: .
+      dockerfile: apps/client/Dockerfile.dev
+    command: pnpm --filter client dev --host
+    volumes:
+      - .:/workspace
+      - root-node-modules:/workspace/node_modules
+      - client-node-modules:/workspace/apps/client/node_modules
+      - shared-types-node-modules:/workspace/packages/shared-types/node_modules
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env
+    depends_on:
+      install:
+        condition: service_completed_successfully
+
+volumes:
+  engine-target:
+  root-node-modules:
+  gateway-node-modules:
+  client-node-modules:
+  shared-types-node-modules:
+  postgres-data:
+  pnpm-store: 
