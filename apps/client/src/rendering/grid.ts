@@ -1,4 +1,5 @@
-import type { InfrastructureKind, TerrainMaterial } from "../mocks/mockMap";
+export type TerrainMaterial = "grass" | "water";
+export type InfrastructureKind = "path" | "ramp" | "stairs";
 
 export const CELL_SIZE = 16;
 export const MARGIN_SIZE = 20;

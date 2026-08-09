@@ -9,8 +9,9 @@ import {
   TERRAIN_COLORS,
   toScreenX,
   toScreenY,
+  type InfrastructureKind,
+  type TerrainMaterial
 } from "../grid";
-import type { InfrastructureKind, TerrainMaterial } from "../../mocks/mockMap";
 
 describe("canvas dimensions", () => {
   it("derive from grid dimensions, cell size and margin", () => {
