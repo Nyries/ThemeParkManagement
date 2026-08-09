@@ -32,7 +32,7 @@ registerCommandHandlers(io);
 
 app.get("/health", async (req, res) => {
   try {
-    const count = prisma.player.count();
+    const count = await prisma.player.count();
     res.status(200).json({ status: "Gateway active", playerCount: count });
   } catch (error) {
     res.status(500).json({ error: "Erreur de connexion BDD", details: error });

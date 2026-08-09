@@ -68,7 +68,7 @@ services:
     build:
       context: .
       dockerfile: apps/client/Dockerfile.dev
-    command: pnpm --filter client dev -- --host
+    command: pnpm --filter client dev --host
     volumes:
       - .:/workspace
       - root-node-modules:/workspace/node_modules
