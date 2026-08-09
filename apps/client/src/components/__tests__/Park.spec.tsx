@@ -35,10 +35,12 @@ vi.mock("pixi.js", () => {
   };
 });
 
-
 const { mockOnMap, mockOnWorldState, mockSendCommand } = vi.hoisted(() => ({
   mockOnMap: vi.fn(),
-  mockOnWorldState: vi.fn(() => () => {}),
+  mockOnWorldState: vi.fn((callback: (state: unknown) => void) => {
+    void callback;
+    return () => {};
+  }),
   mockSendCommand: vi.fn(),
 }));
 
@@ -92,7 +94,10 @@ describe("Park", () => {
     await flushMicrotasks();
 
     expect(mockAppInit).toHaveBeenCalledWith(
-      expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) }),
+      expect.objectContaining({
+        width: expect.any(Number),
+        height: expect.any(Number),
+      }),
     );
   });
 
@@ -104,5 +109,50 @@ describe("Park", () => {
     await flushMicrotasks();
 
     expect(mockOnWorldState).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates the cell's rendering after successfully placing infrastructure via a click", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map, une seule case vide
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const cell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = cell.on.mock.calls[0][1];
+
+    await handleCellClick();
+
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ parkId: "default" }),
+    );
+    expect(cell.clear).toHaveBeenCalled();
+    expect(cell.eventMode).toBe("none");
+  });
+
+  it("renders a visitor sprite when a world state update is received", async () => {
+    mockOnMap.mockResolvedValue(emptyMap);
+
+    render(<Park />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const onWorldStateCallback = mockOnWorldState.mock.calls[0]![0]!;
+    const addChildCallsBefore = mockStageAddChild.mock.calls.length;
+
+    onWorldStateCallback({
+      tickCount: 1,
+      dirtyChunksJson: "{}",
+      visitors: [{ id: "v1", x: 0, y: 0, z: 0 }],
+    });
+
+    expect(mockStageAddChild.mock.calls.length).toBeGreaterThan(
+      addChildCallsBefore,
+    );
   });
 });
