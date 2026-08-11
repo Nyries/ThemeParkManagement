@@ -97,7 +97,7 @@ pub struct BuildingTemplate {
     pub tags: Vec<String>,
     pub intensity: Option<u8>,
     pub cycle_capacity : Option<u32>,
-    pub cycle_duration_tick: Option<u32>,
+    pub cycle_duration_ticks: Option<u32>,
     pub price_per_use: Option<u32>,
     pub biome_exclusive: Option<String>,
 }
@@ -237,6 +237,7 @@ mod test {
             assert_eq!(template.category, BuildingCategory::Attraction);
             assert_eq!(template.tags, vec!["sensations".to_string(), "spectacle".to_string()]);
             assert_eq!(template.intensity, Some(5));
+            assert_eq!(template.cycle_duration_ticks, Some(2400));
             assert_eq!(template.price_per_use, None);
         }
 
