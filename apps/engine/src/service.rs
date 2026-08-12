@@ -1,4 +1,4 @@
-use crate::{game::GameWorld, map::{BuildingId, InfrastructureShape, footprint_for}, simulation::Rotation};
+use crate::{game::GameWorld, map::{BuildingId, InfrastructureShape}, simulation::Rotation};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -70,7 +70,7 @@ impl SimulationService for SimulationEngineService {
 
                 outcome = match shape_result {
                     Ok(shape) => {
-                        let result = world.park_map.can_place_infrastructure(shape.clone(), p.to_z, &coords);
+                        let result = world.park_map.can_place_infrastructure(&&world.building_catalog, shape.clone(), p.to_z, &coords);
                         if result.is_ok() {
                             for (x, y, z) in coords {
                                 world.park_map.set_infrastructure(x, y, z, shape.clone());
@@ -96,20 +96,25 @@ impl SimulationService for SimulationEngineService {
                 outcome
             }
             Some(Command::PlaceBuilding(p)) => {
-                let footprint = footprint_for(&p.template_id);
-                outcome = match (p.origin.as_ref(), Rotation::try_from(p.rotation)) {
-                    (Some(origin), Ok(rotation)) => {
-                        let result = world.park_map.can_place_building((origin.x, origin.y, origin.z), &footprint, rotation);
-                        if result.is_ok() {
-                            let building_id = BuildingId {
-                                building_id: uuid::Uuid::new_v4().to_string(),
-                                template_id: p.template_id.clone(),
-                            };
-                            world.park_map.place_building((origin.x, origin.y, origin.z), &footprint, rotation, building_id);
+                outcome = match world.building_catalog.get(&p.template_id) {
+                    Some(template) => {
+                        let footprint = template.footprint.clone();
+                        match (p.origin.as_ref(), Rotation::try_from(p.rotation)) {
+                            (Some(origin), Ok(rotation)) => {
+                                let result = world.park_map.can_place_building((origin.x, origin.y, origin.z), &footprint, rotation);
+                                if result.is_ok() {
+                                    let building_id = BuildingId {
+                                        building_id: uuid::Uuid::new_v4().to_string(),
+                                        template_id: p.template_id.clone(),
+                                    };
+                                    world.park_map.place_building((origin.x, origin.y, origin.z), &footprint, rotation, building_id); 
+                                }
+                                result
+                            }
+                            _ => Err(ErrorCode::ErrorEmpty),
                         }
-                        result
                     }
-                    _ => Err(ErrorCode::ErrorEmpty),
+                    None => Err(ErrorCode::ErrorInvalidTemplate),
                 };
                 action_type = "PlaceBuilding".to_string();
                 outcome

@@ -104,14 +104,14 @@ async fn test_send_command_with_place_building_succeeds() {
     let service = build_service();
     service.world.lock().unwrap().park_map.parcels.push(Parcel {
         id: "p2".into(),
-        cells: vec![(0,1), (1,1)],
+        cells: vec![(1,0), (0,1), (1,1)],
         unlocked: true,
         price: 0,
     });
     
     // 2. Creating a mock gRPC request
     let place_building  = PlaceBuilding {
-        template_id: "restaurant-1".into(),
+        template_id: "sit_down_restaurant".into(),
         origin: Some(Coord {x:0, y:0, z:0}),
         rotation: Rotation::Deg0.into()
     };
@@ -130,6 +130,7 @@ async fn test_send_command_with_place_building_succeeds() {
     assert!(inner.success);
     assert_eq!(inner.message, "Action executed and registered by the engine");
     assert!(world.park_map.get_building(0, 0, 0).is_some());
+    assert!(world.park_map.get_building(1, 0, 0).is_some());
     assert!(world.park_map.get_building(0, 1, 0).is_some());
     assert!(world.park_map.get_building(1, 1, 0).is_some());
 }
