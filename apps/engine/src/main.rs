@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting the simulation engine!");
 
     // Loading park_map
-    let template = MapTemplate::load(MapSource::Embedded(include_str!("../assets/maps/first-map.json")))?;
+    let template = MapTemplate::load(MapSource::Embedded(include_str!("../assets/maps/map-tpm-41.json")))?;
     let park_map = template.into_park_map()?;
 
     let mut world = GameWorld::new();

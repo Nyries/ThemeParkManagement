@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}};
 
-use crate::{balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS}, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
+use crate::{balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS}, building_template::{BuildingCatalog, CatalogSource}, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
 
 
 
@@ -12,6 +12,7 @@ pub struct ParkMetricsAccumulator {
 
 pub struct GameWorld {
     pub park_map: ParkMap,
+    pub building_catalog: BuildingCatalog,
     pub tick_count: u64,
     pub visitors: Vec<Visitor>,
     pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
@@ -33,6 +34,9 @@ impl GameWorld {
                 "default".into(), //To replace with a parkmap preloaded
                 Bounds3d::new(0, 50, 0, 30, -1, 1)
             ), 
+            building_catalog: BuildingCatalog::load(
+                CatalogSource::Embedded(include_str!("../assets/catalog/buildings.json"))
+            ).expect("embedded buildings.json should always be valid"),
             tick_count: 0, 
             visitors: vec![],
             density: HashMap::new(),

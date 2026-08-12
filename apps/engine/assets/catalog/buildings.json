@@ -1,0 +1,440 @@
+{
+  "templates": [
+    {
+      "template_id": "quick_snack_stand",
+      "name": "Quick Snack Stand",
+      "category": "ShopUtility",
+      "footprint": [[0,0]],
+      "cost": 500,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "hunger": 20
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 8,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "sit_down_restaurant",
+      "name": "Sit-Down Restaurant",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0],[0,1],[1,1]],
+      "cost": 3000,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "hunger": 35
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 15,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "drink_stand",
+      "name": "Drink Stand",
+      "category": "ShopUtility",
+      "footprint": [[0,0]],
+      "cost": 400,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "thirst": 20
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 5,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "premium_juice_bar",
+      "name": "Premium Juice Bar",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0]],
+      "cost": 1800,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "thirst": 35
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 10,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "simple_bench",
+      "name": "Simple Bench",
+      "category": "ShopUtility",
+      "footprint": [[0,0]],
+      "cost": 150,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "fatigue": 20
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 0,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "shaded_rest_area",
+      "name": "Shaded Rest Area",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0],[0,1]],
+      "cost": 1200,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "fatigue": 35
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 3,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "standard_restrooms",
+      "name": "Standard Restrooms",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0]],
+      "cost": 800,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "toilets": 20
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 0,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "premium_restrooms",
+      "name": "Premium Restrooms",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0],[0,1],[1,1]],
+      "cost": 2200,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {
+        "toilets": 35
+      },
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 2,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "souvenir_shop",
+      "name": "Souvenir Shop",
+      "category": "ShopUtility",
+      "footprint": [[0,0],[1,0]],
+      "cost": 2000,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 12,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "candy_shop",
+      "name": "Candy Shop",
+      "category": "ShopUtility",
+      "footprint": [[0,0]],
+      "cost": 900,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 6,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "souvenir_photo_stand",
+      "name": "Souvenir Photo Stand",
+      "category": "ShopUtility",
+      "footprint": [[0,0]],
+      "cost": 1500,
+      "visitor_behavior": "short_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": null,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [],
+      "intensity": null,
+      "cycle_capacity": null,
+      "cycle_duration_ticks": null,
+      "price_per_use": 10,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "family_carousel",
+      "name": "Family Carousel",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[0,1],[1,1]],
+      "cost": 5000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 4000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "family"
+      ],
+      "intensity": 1,
+      "cycle_capacity": 16,
+      "cycle_duration_ticks": 180,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "park_train",
+      "name": "Park Train",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[2,0],[2,1]],
+      "cost": 6000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 5000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "family",
+        "show"
+      ],
+      "intensity": 1,
+      "cycle_capacity": 24,
+      "cycle_duration_ticks": 240,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "ferris_wheel",
+      "name": "Ferris Wheel",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[2,0],[1,1]],
+      "cost": 15000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 9000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "family",
+        "show"
+      ],
+      "intensity": 2,
+      "cycle_capacity": 20,
+      "cycle_duration_ticks": 300,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "spinning_teacups",
+      "name": "Spinning Teacups",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[0,1],[1,1]],
+      "cost": 12000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 8000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "family",
+        "social"
+      ],
+      "intensity": 2,
+      "cycle_capacity": 12,
+      "cycle_duration_ticks": 120,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "bumper_cars",
+      "name": "Bumper Cars",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
+      "cost": 22000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 12000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "social",
+        "thrill"
+      ],
+      "intensity": 3,
+      "cycle_capacity": 10,
+      "cycle_duration_ticks": 150,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "pirate_ship",
+      "name": "Pirate Ship",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[1,1],[2,1]],
+      "cost": 25000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 14000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "thrill"
+      ],
+      "intensity": 3,
+      "cycle_capacity": 16,
+      "cycle_duration_ticks": 180,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "drop_tower",
+      "name": "Drop Tower",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[0,1],[1,1]],
+      "cost": 35000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 17000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "thrill"
+      ],
+      "intensity": 4,
+      "cycle_capacity": 8,
+      "cycle_duration_ticks": 90,
+      "price_per_use": null,
+      "unlock_biome": null
+    },
+    {
+      "template_id": "roller_coaster",
+      "name": "Roller Coaster",
+      "category": "Attraction",
+      "footprint": [[0,0],[1,0],[2,0],[2,1],[2,2],[1,2]],
+      "cost": 50000,
+      "visitor_behavior": "long_stay",
+      "crossing_flags": {
+        "bridge_above_allowed": false,
+        "tunnel_below_allowed": false
+      },
+      "construction_time_ticks": 20000,
+      "needs_relief": {},
+      "resource_vector": null,
+      "tags": [
+        "thrill",
+        "show"
+      ],
+      "intensity": 5,
+      "cycle_capacity": 20,
+      "cycle_duration_ticks": 2400,
+      "price_per_use": null,
+      "unlock_biome": null
+    }
+  ]
+}

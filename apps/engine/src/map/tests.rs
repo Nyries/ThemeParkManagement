@@ -64,17 +64,6 @@ mod rotate_footprint {
     }
 }
 
-mod footprint_for {
-    use crate::map::footprint_for;
- 
-    #[test]
-    fn test_footprint_for_stub() {
-        let template_id = "";
-        let result = footprint_for(template_id);
-        assert_eq!(result,[(0,0), (0,1), (1,1)]);
-    }
-}
-
 mod terrain {
     use super::*;
 
@@ -316,6 +305,25 @@ mod can_apply_terrain {
 
 mod can_place_infrastructure {
     use super::*;
+    use crate::building_template::{BuildingCatalog, CatalogSource};
+
+    fn test_catalog() -> BuildingCatalog {
+        BuildingCatalog::load(CatalogSource::Embedded(r#"{
+            "templates": [
+                {
+                    "template_id": "bridge_support",
+                    "name": "Bridge Support",
+                    "category": "ShopUtility",
+                    "footprint": [[0,0]],
+                    "cost": 100,
+                    "visitor_behavior": "short_stay",
+                    "crossing_flags": { "bridge_above_allowed": true, "tunnel_below_allowed": true },
+                    "needs_relief": {},
+                    "tags": []
+                }
+            ]
+        }"#)).unwrap()
+    }
 
     fn build_infra_test_map() -> ParkMap {
         let mut park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2));
@@ -334,7 +342,7 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
 
         // to_z ignoré pour Path
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(),InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert!(result.is_ok());
     }
@@ -343,7 +351,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_out_of_bounds() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(5, 5, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(5, 5, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -352,7 +360,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_on_locked_parcel() {
         let park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2)); // pas de parcelle
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -362,7 +370,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_building(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCollision));
     }
@@ -372,7 +380,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_terrain(0, 0, 0, "water".into());
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -383,7 +391,7 @@ mod can_place_infrastructure {
         park_map.set_terrain(0, 0, 0, "water".into());
 
         // Pont = Path à z=+1 au-dessus de l'eau à z=0
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert!(result.is_ok());
     }
@@ -393,7 +401,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_building(0, 0, 0, BuildingId { building_id: "shop-1".into(), template_id: "shop".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -403,7 +411,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_building(0, 0, 0, BuildingId { building_id: "support-1".into(), template_id: "bridge_support".into() });
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
 
         assert!(result.is_ok());
     }
@@ -412,7 +420,7 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_succeeds_for_ramp_to_adjacent_level() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
 
         assert!(result.is_ok());
     }
@@ -422,7 +430,7 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.unlocked_levels.insert(2);
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -432,7 +440,7 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
         // to_z = -1 est dans les bornes mais pas dans unlocked_levels
 
-        let result = park_map.can_place_infrastructure(InfrastructureShape::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }

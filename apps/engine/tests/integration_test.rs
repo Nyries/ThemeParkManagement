@@ -23,7 +23,7 @@ async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channe
     let world = Arc::new(Mutex::new(GameWorld::new()));
     world.lock().unwrap().park_map.parcels.push(Parcel {
         id: "p1".into(),
-        cells: vec![(0, 0), (0, 1), (1, 1)],
+        cells: vec![(0, 0), (1,0), (0, 1), (1, 1)],
         unlocked: true,
         price: 0,
     });
@@ -119,7 +119,7 @@ async fn test_send_command_with_place_building_succeeds() {
     let mut client = spawn_test_server().await;
 
     let place_building  = PlaceBuilding {
-        template_id: "restaurant-1".into(),
+        template_id: "sit_down_restaurant".into(),
         origin: Some(Coord {x:0, y:0, z:0}),
         rotation: Rotation::Deg0.into()
     };
@@ -138,7 +138,7 @@ async fn test_send_command_with_remove_building_succeeds() {
     let mut client = spawn_test_server().await;
 
     let place_building = PlaceBuilding {
-        template_id: "restaurant-1".into(),
+        template_id: "sit_down_restaurant".into(),
         origin: Some(Coord {x:0, y:0, z:0}),
         rotation: Rotation::Deg0.into()
     };

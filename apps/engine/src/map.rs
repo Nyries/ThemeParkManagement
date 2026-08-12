@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use rand::seq::IteratorRandom;
 use serde::{Serialize, Deserialize};
 
-use crate::simulation::{ErrorCode, Rotation};
+use crate::{building_template::BuildingCatalog, simulation::{ErrorCode, Rotation}};
 
 pub(crate) fn movement_cost_for(material_id: &str) -> u32 {
     match material_id {
@@ -29,15 +29,6 @@ pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
     }
 }
 
-
-fn crossing_flags_for(template_id: &str) -> (bool, bool) {
-    // Allows above or allows below
-    match template_id {
-        "bridge_support" => (true, true),
-        _ => (false, false),
-    } // Depends on template_id catalog
-}
-
 fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i32)> {
     footprint.iter().map(|&(dx, dy)| match rotation {
         Rotation::Deg0 => (dx, dy),
@@ -45,12 +36,6 @@ fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i
         Rotation::Deg180 => (-dx, -dy),
         Rotation::Deg270 => (dy, -dx),
     }).collect()
-}
-
-pub(crate) fn footprint_for(template_id: &str) -> Vec<(i32, i32)> {
-    //TODO: create the JSON sparser from catalog
-    let _ = template_id;
-    [(0,0), (0,1), (1,1)].to_vec()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -220,7 +205,7 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_place_infrastructure(&self, kind: InfrastructureShape, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
+    pub fn can_place_infrastructure(&self, catalog: &BuildingCatalog, kind: InfrastructureShape, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
         for &(x, y,z) in coordinates {
             if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
                 return Err(ErrorCode::ErrorOutOfBounds);
@@ -236,8 +221,9 @@ impl ParkMap {
                 return Err(ErrorCode::ErrorCrossingNotAllowed);
             }
             if (z == 1 || z == -1) && let Some(building) = self.get_building(x, y, 0) {
-                let (allows_above, allows_below) = crossing_flags_for(&building.template_id);
-                let allowed = if z == 1 { allows_above } else { allows_below };
+                let allowed = catalog.get(&building.template_id).is_some_and(|t| {
+                    if z == 1 { t.crossing_flags.bridge_above_allowed } else { t.crossing_flags.tunnel_below_allowed }
+                });
                 if !allowed {
                     return Err(ErrorCode::ErrorCrossingNotAllowed);
                 }
