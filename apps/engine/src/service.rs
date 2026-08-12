@@ -70,7 +70,7 @@ impl SimulationService for SimulationEngineService {
 
                 outcome = match shape_result {
                     Ok(shape) => {
-                        let result = world.park_map.can_place_infrastructure(&&world.building_catalog, shape.clone(), p.to_z, &coords);
+                        let result = world.park_map.can_place_infrastructure(&world.building_catalog, shape.clone(), p.to_z, &coords);
                         if result.is_ok() {
                             for (x, y, z) in coords {
                                 world.park_map.set_infrastructure(x, y, z, shape.clone());
