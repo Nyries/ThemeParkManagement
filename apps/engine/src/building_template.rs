@@ -99,7 +99,7 @@ pub struct BuildingTemplate {
     pub cycle_capacity : Option<u32>,
     pub cycle_duration_ticks: Option<u32>,
     pub price_per_use: Option<u32>,
-    pub biome_exclusive: Option<String>,
+    pub unlock_biome: Option<String>,
 }
 
 #[cfg(test)]
@@ -127,7 +127,7 @@ mod test {
                     "cycle_capacity": null,
                     "cycle_duration_ticks": null,
                     "price_per_use": 8,
-                    "biome_exclusive": null
+                    "unlock_biome": null
                 }
             ]
         }"#;
@@ -160,8 +160,8 @@ mod test {
         fn test_load_duplicate_template_id_fails() {
             let json = r#"{
                 "templates": [
-                    { "template_id": "dup", "name": "A", "category": "ShopUtility", "footprint": [[0,0]], "cost": 1, "visitor_behavior": "short_stay", "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false }, "construction_time_ticks": null, "needs_relief": {}, "resource_vector": null, "tags": [], "intensity": null, "cycle_capacity": null, "cycle_duration_ticks": null, "price_per_use": 1, "biome_exclusive": null },
-                    { "template_id": "dup", "name": "B", "category": "ShopUtility", "footprint": [[0,0]], "cost": 1, "visitor_behavior": "short_stay", "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false }, "construction_time_ticks": null, "needs_relief": {}, "resource_vector": null, "tags": [], "intensity": null, "cycle_capacity": null, "cycle_duration_ticks": null, "price_per_use": 1, "biome_exclusive": null }
+                    { "template_id": "dup", "name": "A", "category": "ShopUtility", "footprint": [[0,0]], "cost": 1, "visitor_behavior": "short_stay", "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false }, "construction_time_ticks": null, "needs_relief": {}, "resource_vector": null, "tags": [], "intensity": null, "cycle_capacity": null, "cycle_duration_ticks": null, "price_per_use": 1, "unlock_biome": null },
+                    { "template_id": "dup", "name": "B", "category": "ShopUtility", "footprint": [[0,0]], "cost": 1, "visitor_behavior": "short_stay", "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false }, "construction_time_ticks": null, "needs_relief": {}, "resource_vector": null, "tags": [], "intensity": null, "cycle_capacity": null, "cycle_duration_ticks": null, "price_per_use": 1, "unlock_biome": null }
                 ]
             }"#;
 
@@ -229,7 +229,7 @@ mod test {
                 "cycle_capacity": 20,
                 "cycle_duration_ticks": 2400,
                 "price_per_use": null,
-                "biome_exclusive": null
+                "unlock_biome": null
             }"#;
 
             let template: BuildingTemplate = serde_json::from_str(json).unwrap();
@@ -259,7 +259,7 @@ mod test {
                 "cycle_capacity": null,
                 "cycle_duration_ticks": null,
                 "price_per_use": 12,
-                "biome_exclusive": null
+                "unlock_biome": null
             }"#;
 
             let template: BuildingTemplate = serde_json::from_str(json).unwrap();
@@ -276,7 +276,7 @@ mod test {
                 "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
                 "construction_time_ticks": null, "needs_relief": {}, "resource_vector": null,
                 "tags": [], "intensity": null, "cycle_capacity": null, "cycle_duration_ticks": null,
-                "price_per_use": null, "biome_exclusive": null
+                "price_per_use": null, "unlock_biome": null
             }"#;
 
             let result: Result<BuildingTemplate, _> = serde_json::from_str(json);

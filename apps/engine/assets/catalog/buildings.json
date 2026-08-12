@@ -21,7 +21,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 8,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "sit_down_restaurant",
@@ -44,7 +44,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 15,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "drink_stand",
@@ -67,7 +67,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 5,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "premium_juice_bar",
@@ -90,7 +90,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 10,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "simple_bench",
@@ -113,7 +113,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 0,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "shaded_rest_area",
@@ -136,7 +136,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 3,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "standard_restrooms",
@@ -159,7 +159,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 0,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "premium_restrooms",
@@ -182,7 +182,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 2,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "souvenir_shop",
@@ -203,7 +203,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 12,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "candy_shop",
@@ -224,7 +224,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 6,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "souvenir_photo_stand",
@@ -245,7 +245,7 @@
       "cycle_capacity": null,
       "cycle_duration_ticks": null,
       "price_per_use": 10,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "family_carousel",
@@ -268,7 +268,7 @@
       "cycle_capacity": 16,
       "cycle_duration_ticks": 180,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "park_train",
@@ -292,7 +292,7 @@
       "cycle_capacity": 24,
       "cycle_duration_ticks": 240,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "ferris_wheel",
@@ -316,7 +316,7 @@
       "cycle_capacity": 20,
       "cycle_duration_ticks": 300,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "spinning_teacups",
@@ -340,7 +340,7 @@
       "cycle_capacity": 12,
       "cycle_duration_ticks": 120,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "bumper_cars",
@@ -364,7 +364,7 @@
       "cycle_capacity": 10,
       "cycle_duration_ticks": 150,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "pirate_ship",
@@ -387,7 +387,7 @@
       "cycle_capacity": 16,
       "cycle_duration_ticks": 180,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "drop_tower",
@@ -410,7 +410,7 @@
       "cycle_capacity": 8,
       "cycle_duration_ticks": 90,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     },
     {
       "template_id": "roller_coaster",
@@ -434,7 +434,7 @@
       "cycle_capacity": 20,
       "cycle_duration_ticks": 2400,
       "price_per_use": null,
-      "biome_exclusive": null
+      "unlock_biome": null
     }
   ]
 }
