@@ -108,7 +108,8 @@ async fn test_send_command_with_place_building_succeeds() {
         unlocked: true,
         price: 0,
     });
-    
+    service.world.lock().unwrap().balance = 5000.0; // sit_down_restaurant costs 3000, above the 1000.0 default
+
     // 2. Creating a mock gRPC request
     let place_building  = PlaceBuilding {
         template_id: "sit_down_restaurant".into(),
@@ -133,6 +134,66 @@ async fn test_send_command_with_place_building_succeeds() {
     assert!(world.park_map.get_building(1, 0, 0).is_some());
     assert!(world.park_map.get_building(0, 1, 0).is_some());
     assert!(world.park_map.get_building(1, 1, 0).is_some());
+}
+
+#[tokio::test]
+async fn test_send_command_with_place_building_debits_balance_on_success() {
+    let service = build_service();
+    service.world.lock().unwrap().park_map.parcels.push(Parcel {
+        id: "p2".into(),
+        cells: vec![(1,0), (0,1), (1,1)],
+        unlocked: true,
+        price: 0,
+    });
+    service.world.lock().unwrap().balance = 5000.0;
+
+    let place_building = PlaceBuilding {
+        template_id: "sit_down_restaurant".into(), // cost: 3000
+        origin: Some(Coord {x:0, y:0, z:0}),
+        rotation: Rotation::Deg0.into()
+    };
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceBuilding(place_building).into(),
+    });
+
+    let response = service.send_command(request).await;
+
+    assert!(response.unwrap().into_inner().success);
+    assert_eq!(service.world.lock().unwrap().balance, 2000.0);
+}
+
+#[tokio::test]
+async fn test_send_command_with_place_building_fails_when_funds_insufficient() {
+    let service = build_service();
+    service.world.lock().unwrap().park_map.parcels.push(Parcel {
+        id: "p2".into(),
+        cells: vec![(1,0), (0,1), (1,1)],
+        unlocked: true,
+        price: 0,
+    });
+    service.world.lock().unwrap().balance = 100.0; // sit_down_restaurant costs 3000
+
+    let place_building = PlaceBuilding {
+        template_id: "sit_down_restaurant".into(),
+        origin: Some(Coord {x:0, y:0, z:0}),
+        rotation: Rotation::Deg0.into()
+    };
+    let request = Request::new(CommandRequest {
+        park_id: "1".into(),
+        command: Command::PlaceBuilding(place_building).into(),
+    });
+
+    let response = service.send_command(request).await;
+
+    assert!(response.is_ok());
+    let inner = response.unwrap().into_inner();
+    assert!(!inner.success);
+    assert_eq!(inner.error_code, ErrorCode::ErrorInsufficientFunds as i32);
+    assert_eq!(inner.message, "Not enough funds");
+    let world = service.world.lock().unwrap();
+    assert!(world.park_map.get_building(0, 0, 0).is_none(), "building must not be placed when funds are insufficient");
+    assert_eq!(world.balance, 100.0, "balance must not be debited when the placement is rejected");
 }
 
 #[tokio::test]
