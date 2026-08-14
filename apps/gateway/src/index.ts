@@ -8,6 +8,7 @@ import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pkg from "pg";
 import { registerCommandHandlers } from "./socket";
+import { registerRoutes } from "./routes";
 
 const { Pool } = pkg;
 
@@ -30,14 +31,7 @@ const io = new Server(httpServer, {
 
 registerCommandHandlers(io);
 
-app.get("/health", async (req, res) => {
-  try {
-    const count = await prisma.player.count();
-    res.status(200).json({ status: "Gateway active", playerCount: count });
-  } catch (error) {
-    res.status(500).json({ error: "Erreur de connexion BDD", details: error });
-  }
-});
+registerRoutes(app, prisma);
 
 const PORT = process.env.PORT || 4000;
 httpServer.listen(PORT, () => {
