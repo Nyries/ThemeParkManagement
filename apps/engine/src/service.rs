@@ -99,10 +99,15 @@ impl SimulationService for SimulationEngineService {
                 outcome = match world.building_catalog.get(&p.template_id) {
                     Some(template) => {
                         let footprint = template.footprint.clone();
+                        let cost = template.cost;
                         match (p.origin.as_ref(), Rotation::try_from(p.rotation)) {
                             (Some(origin), Ok(rotation)) => {
-                                let result = world.park_map.can_place_building((origin.x, origin.y, origin.z), &footprint, rotation);
+                                let mut result = world.park_map.can_place_building((origin.x, origin.y, origin.z), &footprint, rotation);
+                                if result.is_ok() && world.balance < cost as f64 {
+                                    result = Err(ErrorCode::ErrorInsufficientFunds);
+                                }
                                 if result.is_ok() {
+                                    world.balance -= cost as f64;
                                     let building_id = BuildingId {
                                         building_id: uuid::Uuid::new_v4().to_string(),
                                         template_id: p.template_id.clone(),

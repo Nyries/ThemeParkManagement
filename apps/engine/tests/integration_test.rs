@@ -27,6 +27,7 @@ async fn spawn_test_server() -> SimulationServiceClient<tonic::transport::Channe
         unlocked: true,
         price: 0,
     });
+    world.lock().unwrap().balance = 5000.0; // above the cost of any single catalog template used in these tests
     let (state_sender, _) = tokio::sync::broadcast::channel(16);
     let service = SimulationEngineService { world, state_sender };
 
