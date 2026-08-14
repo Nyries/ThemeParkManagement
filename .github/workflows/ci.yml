@@ -68,6 +68,11 @@ jobs:
       - name: Generate shared proto types
         run: pnpm --filter @app/shared-types run proto:gen
 
+      - name: Generate Prisma client
+        run: pnpm --filter gateway exec prisma generate
+        env:
+          DATABASE_URL: "postgresql://user:password@localhost:5432/db"
+
       - name: Run ESLint (quality gate)
         run: pnpm --filter gateway lint --max-warnings 0
 

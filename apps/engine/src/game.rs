@@ -13,6 +13,7 @@ pub struct ParkMetricsAccumulator {
 pub struct GameWorld {
     pub park_map: ParkMap,
     pub building_catalog: BuildingCatalog,
+    pub balance: f64,
     pub tick_count: u64,
     pub visitors: Vec<Visitor>,
     pub density: HashMap<(i32, i32, i32), Vec<VisitorId>>,
@@ -37,6 +38,7 @@ impl GameWorld {
             building_catalog: BuildingCatalog::load(
                 CatalogSource::Embedded(include_str!("../assets/catalog/buildings.json"))
             ).expect("embedded buildings.json should always be valid"),
+            balance: 1000.0,
             tick_count: 0, 
             visitors: vec![],
             density: HashMap::new(),
@@ -232,6 +234,12 @@ mod tests {
         let world = GameWorld::new();
         assert_eq!(world.metrics.visitors_in_park, 0);
         assert_eq!(world.metrics.visitors_exited, 0);
+    }
+
+    #[test]
+    fn test_game_world_starts_with_default_balance() {
+        let world = GameWorld::new();
+        assert_eq!(world.balance, 1000.0);
     }
 
     mod spawn_visitor {

@@ -34,10 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let current_tick;
             let visitors;
+            let balance;
             {
                 let mut w = world_clone.lock().unwrap();
                 w.tick(TICK_INTERVAL);
                 current_tick = w.tick_count;
+                balance = w.balance;
 
                 visitors = w.visitors.iter().map(|v| VisitorState {
                     id: v.id.clone(),
@@ -55,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tick_count: current_tick,
                 dirty_chunks_json: "{}".into(),
                 visitors,
+                balance,
             });
 
             let elapsed = start.elapsed();

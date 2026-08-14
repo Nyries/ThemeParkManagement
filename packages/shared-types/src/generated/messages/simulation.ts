@@ -226,6 +226,7 @@ export interface WorldStateResponse {
   tickCount: number;
   dirtyChunksJson: string;
   visitors: VisitorState[];
+  balance: number;
 }
 
 export interface TerrainCell {
@@ -1224,7 +1225,7 @@ export const VisitorState: MessageFns<VisitorState> = {
 };
 
 function createBaseWorldStateResponse(): WorldStateResponse {
-  return { tickCount: 0, dirtyChunksJson: "", visitors: [] };
+  return { tickCount: 0, dirtyChunksJson: "", visitors: [], balance: 0 };
 }
 
 export const WorldStateResponse: MessageFns<WorldStateResponse> = {
@@ -1237,6 +1238,9 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     }
     for (const v of message.visitors) {
       VisitorState.encode(v!, writer.uint32(26).fork()).join();
+    }
+    if (message.balance !== 0) {
+      writer.uint32(33).double(message.balance);
     }
     return writer;
   },
@@ -1272,6 +1276,14 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
           message.visitors.push(VisitorState.decode(reader, reader.uint32()));
           continue;
         }
+        case 4: {
+          if (tag !== 33) {
+            break;
+          }
+
+          message.balance = reader.double();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1296,6 +1308,7 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
       visitors: globalThis.Array.isArray(object?.visitors)
         ? object.visitors.map((e: any) => VisitorState.fromJSON(e))
         : [],
+      balance: isSet(object.balance) ? globalThis.Number(object.balance) : 0,
     };
   },
 
@@ -1310,6 +1323,9 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     if (message.visitors?.length) {
       obj.visitors = message.visitors.map((e) => VisitorState.toJSON(e));
     }
+    if (message.balance !== 0) {
+      obj.balance = message.balance;
+    }
     return obj;
   },
 
@@ -1321,6 +1337,7 @@ export const WorldStateResponse: MessageFns<WorldStateResponse> = {
     message.tickCount = object.tickCount ?? 0;
     message.dirtyChunksJson = object.dirtyChunksJson ?? "";
     message.visitors = object.visitors?.map((e) => VisitorState.fromPartial(e)) || [];
+    message.balance = object.balance ?? 0;
     return message;
   },
 };
