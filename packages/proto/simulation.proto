@@ -95,6 +95,7 @@ message WorldStateResponse {
   uint64 tick_count = 1;
   string dirty_chunks_json = 2;
   repeated VisitorState visitors = 3;
+  double balance = 4;
 }
 
 message TerrainCell {
