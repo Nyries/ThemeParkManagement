@@ -16,16 +16,17 @@ model Player {
   id        String   @id @default(uuid())
   username  String   @unique
   email     String   @unique
-  balance   Float    @default(1000.0)
+  premiumBalance   Float    @default(0)
   createdAt DateTime @default(now())
-  characters  Character[]
+  companies Company[]
 }
 
-model Character {
+model Company {
   id       String   @id @default(uuid())
   name     String
   role     String
   level    Int      @default(1)
+  balance  Float @default(0)
 
   playerId String
   player Player     @relation(fields: [playerId], references: [id])
@@ -35,7 +36,8 @@ model Character {
 
 model Park {
   id       String @id @default(uuid())
-  characterId String
-  character   Character @relation(fields: [characterId], references: [id])
-  gridData Json   // Matrice 50x30 de la grille
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  gridData Json   
+  balance Float @default(1000.0)
 }
