@@ -1,9 +1,5 @@
 import { Separator } from "@/components/ui/separator";
-
-export interface SelectionInfo {
-  kind: "building" | "employee";
-  label: string;
-}
+import type { SelectionInfo } from "@/park/selection";
 
 interface InspectorPanelProps {
   selection: SelectionInfo | null;

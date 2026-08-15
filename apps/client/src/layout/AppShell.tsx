@@ -2,8 +2,14 @@ import { InspectorPanel } from "./InspectorPanel";
 import { LeftNav } from "./LeftNav";
 import { ParkTopBar } from "./ParkTopBar";
 import { TopBar } from "./TopBar";
+import type { SelectionInfo } from "@/park/selection";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+interface AppShellProps {
+    children: React.ReactNode;
+    selection: SelectionInfo | null;
+}
+
+export function AppShell({ children, selection }: AppShellProps) {
     return (
         <div className="flex h-screen w-screen flex-col bg-background text-foreground">
             <TopBar />
@@ -13,7 +19,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <ParkTopBar />
                     <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
                 </div>
-                <InspectorPanel selection={null} />
+                <InspectorPanel selection={selection} />
             </div>
         </div>
     )

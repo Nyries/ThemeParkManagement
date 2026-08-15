@@ -12,12 +12,23 @@ import { useParkSocket } from "../hooks/useParkSocket";
 import { placeInfrastructureAt } from "../park/placeInfrastructure";
 import { mapFromResponse } from "../park/mapFromResponse";
 import { syncVisitorGraphics } from "../park/syncVisitors";
+import type { SelectionInfo } from "../park/selection";
 
 const PARK_ID = "default";
 
-export function Park() {
+interface ParkProps {
+  onSelectionChange?: (selection: SelectionInfo | null) => void;
+}
+
+export function Park({ onSelectionChange }: ParkProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { sendCommand, onWorldState, onMap } = useParkSocket();
+
+  useEffect(() => {
+    // No selectable buildings/employees exist yet (TPM-149) — this only
+    // signals the initial neutral state so InspectorPanel has something to render.
+    onSelectionChange?.(null);
+  }, [onSelectionChange]);
 
   useEffect(() => {
     let cancelled = false;
