@@ -117,7 +117,7 @@ export function Park() {
 
   return (
     <div
-      className="flex h-screen w-screen items-center justify-center overflow-hidden bg-neutral-900"
+      className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900"
       ref={containerRef}
     />
   );
