@@ -1,5 +1,5 @@
 {
-    "rust-analyzer.linkedProjects": [
-        "apps/engine/Cargo.toml"
-    ]
+  "rust-analyzer.linkedProjects": ["apps/engine/Cargo.toml"],
+
+  "css.lint.unknownAtRules": "ignore"
 }
