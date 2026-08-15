@@ -1,16 +1,20 @@
 import type { CommandRequest, CommandResponse } from "@app/shared-types";
 import type { MapResponse, WorldStateResponse } from "@app/shared-types/grpc";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 const GATEWAY_URL = "http://localhost:4000";
 
 export function useParkSocket() {
   const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(true);
 
   useEffect(() => {
     const socket = io(GATEWAY_URL);
     socketRef.current = socket;
+
+    socket.on("connect", () => setIsConnected(true));
+    socket.on("disconnect", () => setIsConnected(false));
 
     return () => {
       socket.disconnect();
@@ -57,5 +61,5 @@ export function useParkSocket() {
     });
   }, []);
 
-  return { sendCommand, onWorldState, onMap };
+  return { sendCommand, onWorldState, onMap, isConnected };
 }

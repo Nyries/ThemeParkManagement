@@ -12,12 +12,23 @@ import { useParkSocket } from "../hooks/useParkSocket";
 import { placeInfrastructureAt } from "../park/placeInfrastructure";
 import { mapFromResponse } from "../park/mapFromResponse";
 import { syncVisitorGraphics } from "../park/syncVisitors";
+import type { SelectionInfo } from "../park/selection";
 
 const PARK_ID = "default";
 
-export function Park() {
+interface ParkProps {
+  onSelectionChange?: (selection: SelectionInfo | null) => void;
+}
+
+export function Park({ onSelectionChange }: ParkProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { sendCommand, onWorldState, onMap } = useParkSocket();
+  const { sendCommand, onWorldState, onMap, isConnected } = useParkSocket();
+
+  useEffect(() => {
+    // No selectable buildings/employees exist yet (TPM-149) — this only
+    // signals the initial neutral state so InspectorPanel has something to render.
+    onSelectionChange?.(null);
+  }, [onSelectionChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,9 +127,16 @@ export function Park() {
   }, [sendCommand, onWorldState, onMap]);
 
   return (
-    <div
-      className="flex h-screen w-screen items-center justify-center overflow-hidden bg-neutral-900"
-      ref={containerRef}
-    />
+    <div className="relative h-full w-full">
+      {!isConnected && (
+        <div className="absolute inset-x-0 top-0 z-10 bg-destructive/90 px-3 py-1.5 text-center text-xs text-white">
+          Connexion perdue — reconnexion en cours…
+        </div>
+      )}
+      <div
+        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900"
+        ref={containerRef}
+      />
+    </div>
   );
 }
