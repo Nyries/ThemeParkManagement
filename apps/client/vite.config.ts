@@ -18,6 +18,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    setupFiles: ["./vitest-setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
@@ -27,6 +28,7 @@ export default defineConfig({
         "src/**/__tests__/**",
         "src/main.tsx",
         "src/App.tsx",
+        "src/components/ui/**",
       ],
       thresholds: {
         lines: 90,
