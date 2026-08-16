@@ -33,9 +33,6 @@ pub const DETOUR_LOOKAHEAD_CELLS: usize = 5;
 pub const DETOUR_DENSITY_THRESHOLD: usize = 3;
 pub const DETOUR_BIAS_STRENGTH: f32 = 0.5;
 
-/// Multiplier on visitor diameter for queue spacing (1.0 = shoulder to shoulder).
-pub const QUEUE_SPACING_FACTOR: f32 = 1.0;
-
 /// 🔶 esquissé — coût de déplacement horizontal par case, selon le type
 /// d'infrastructure (pas le terrain). Voir Wiki des Formules §Déplacement des visiteurs.
 pub const MOVEMENT_COST_PATH: u32 = 1;

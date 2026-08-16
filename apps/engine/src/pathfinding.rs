@@ -10,7 +10,6 @@ impl ParkMap {
             Some(InfrastructureShape::Path)
                 | Some(InfrastructureShape::Ramp { .. })
                 | Some(InfrastructureShape::Stairs { .. })
-                | Some(InfrastructureShape::Queue { .. })
         )
     }
 
@@ -140,26 +139,6 @@ mod tests {
 
     fn build_map() -> ParkMap {
         ParkMap::new("map-1".into(), Bounds3d::new(0, 5, 0, 5, -1, 1))
-    }
-
-    mod is_walkable {
-        use super::*;
-        use crate::map::{BuildingId, InfrastructureShape};
-
-        #[test]
-        fn test_a_queue_cell_is_walkable() {
-            let mut map = build_map();
-            map.set_infrastructure(
-                0,
-                0,
-                0,
-                InfrastructureShape::Queue {
-                    attraction_id: BuildingId::default(),
-                },
-            );
-
-            assert!(map.is_walkable(0, 0, 0));
-        }
     }
 
     mod successors {

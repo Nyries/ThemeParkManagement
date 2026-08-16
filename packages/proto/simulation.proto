@@ -24,14 +24,12 @@ enum InfrastructureKind {
   INFRASTRUCTURE_KIND_PATH = 1;
   INFRASTRUCTURE_KIND_RAMP = 2;
   INFRASTRUCTURE_KIND_STAIRS = 3;
-  INFRASTRUCTURE_KIND_QUEUE = 4;
 }
 
 message PlaceInfrastructure {
   InfrastructureKind kind = 1;
   int32 to_z = 2; // Ignored when kind == INFRASTRUCTURE_PATH
   repeated Coord coordinates = 3;
-  string attraction_building_id = 4; // Required when kind == INFRASTRUCTURE_KIND_QUEUE, ignored otherwise
 }
 
 message RemoveInfrastructure {
@@ -109,7 +107,6 @@ message InfrastructureCell {
   Coord coord = 1;
   InfrastructureKind kind = 2;
   int32 to_z = 3;
-  string attraction_building_id = 4; // Set when kind == INFRASTRUCTURE_KIND_QUEUE
 }
 
 message BuildingCell {
