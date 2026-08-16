@@ -24,7 +24,7 @@ pub const CORE_NEEDS: [&str; 5] = [HUNGER, THIRST, FATIGUE, TOILETS, ENTERTAINME
 
 /// affinité(profil, cible) factor: data, not an enum, keyed on the catalog's free-form
 /// `BuildingTemplate.tags` — an unlisted tag is just neutral (`affinity_for`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VisitorProfile {
     pub name: &'static str,
     /// Positive = preference, negative = aversion, absent = neutral.
@@ -47,6 +47,13 @@ pub fn visitor_profiles() -> Vec<VisitorProfile> {
             tag_affinities: HashMap::from([("show", 0.7), ("family", 0.2), ("thrill", -0.6)]),
         },
     ]
+}
+
+/// Uniformly random profile — the jalon 2a stub distribution.
+pub fn pick_profile(rng: &mut impl Rng) -> VisitorProfile {
+    let profiles = visitor_profiles();
+    let idx = rng.gen_range(0..profiles.len());
+    profiles[idx].clone()
 }
 
 /// Mean affinity across a candidate's tags, centered on `AFFINITY_DEFAULT` rather than
@@ -77,6 +84,8 @@ pub struct Visitor {
     pub ticks_since_spawn: u64,
     pub heading: (f32, f32, f32),
     pub is_leaving: bool,
+    /// Drawn at spawn, see `Visitor::new`.
+    pub profile: VisitorProfile,
     /// Level per need, 0-100, grows over time/distance and is relieved by buildings.
     pub needs: HashMap<String, f32>,
     /// Individual comfort threshold per need, drawn at spawn (see `Visitor::new`).
@@ -293,6 +302,7 @@ impl Visitor {
     /// Fresh visitor at `position`; caller still sets `path`/`target`.
     pub fn new(id: VisitorId, position: (f32, f32, f32)) -> Self {
         let mut rng = rand::thread_rng();
+        let profile = pick_profile(&mut rng);
         let comfort_thresholds = CORE_NEEDS
             .iter()
             .map(|&need| {
@@ -309,6 +319,7 @@ impl Visitor {
         Self {
             id,
             position,
+            profile,
             needs,
             comfort_thresholds,
             ..Default::default()
@@ -558,6 +569,14 @@ mod tests {
         }
 
         #[test]
+        fn test_new_assigns_one_of_the_known_profiles() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            let known_names: Vec<&str> = visitor_profiles().iter().map(|p| p.name).collect();
+            assert!(known_names.contains(&visitor.profile.name));
+        }
+
+        #[test]
         fn test_new_starts_with_neutral_satisfaction_and_not_leaving() {
             let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
 
@@ -772,6 +791,22 @@ mod tests {
 
             let names: Vec<&str> = profiles.iter().map(|p| p.name).collect();
             assert_eq!(names, vec!["Familles", "Ados", "Seniors"]);
+        }
+
+        #[test]
+        fn test_pick_profile_can_return_every_known_profile() {
+            let known_names: Vec<&str> = visitor_profiles().iter().map(|p| p.name).collect();
+            let mut rng = rand::thread_rng();
+
+            let mut seen: Vec<&str> = Vec::new();
+            for _ in 0..200 {
+                let picked = pick_profile(&mut rng);
+                assert!(known_names.contains(&picked.name));
+                if !seen.contains(&picked.name) {
+                    seen.push(picked.name);
+                }
+            }
+            assert_eq!(seen.len(), known_names.len());
         }
 
         #[test]
