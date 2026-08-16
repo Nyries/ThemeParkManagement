@@ -5,13 +5,23 @@ import {
   DEFAULT_BUILDING_ID,
   type BuildingCategory,
 } from "@/park/buildingCatalog";
-import { DEFAULT_MATERIAL_ID, materialColor, TERRAIN_MATERIALS } from "@/park/materials";
+import {
+  DEFAULT_MATERIAL_ID,
+  materialColor,
+  TERRAIN_MATERIALS,
+  type MaterialOption,
+} from "@/park/materials";
 import type { SelectionInfo } from "@/park/selection";
 import type { ToolState } from "@/park/tool";
 
 const BUILDING_CATEGORIES: { id: BuildingCategory; label: string }[] = [
   { id: "ShopUtility", label: "Commodités" },
   { id: "Attraction", label: "Attractions" },
+];
+
+const MATERIAL_GROUPS: { buildable: boolean; label: string }[] = [
+  { buildable: true, label: "Constructible" },
+  { buildable: false, label: "Non constructible" },
 ];
 
 interface InspectorPanelProps {
@@ -27,10 +37,18 @@ function showsJournal(tool: ToolState): boolean {
   return tool.mode === null || tool.mode === "remove";
 }
 
-export function InspectorPanel({ selection, tool, onToolChange }: InspectorPanelProps) {
+export function InspectorPanel({
+  selection,
+  tool,
+  onToolChange,
+}: InspectorPanelProps) {
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border p-4">
-      <ToolContextContent selection={selection} tool={tool} onToolChange={onToolChange} />
+      <ToolContextContent
+        selection={selection}
+        tool={tool}
+        onToolChange={onToolChange}
+      />
 
       {showsJournal(tool) && (
         <>
@@ -56,44 +74,37 @@ function ToolContextContent({
   onToolChange,
 }: InspectorPanelProps) {
   switch (tool.mode) {
-    case "terrain":
+    case "terrain": {
+      const selectedMaterialId = tool.selectedMaterialId ?? DEFAULT_MATERIAL_ID;
       return (
         <div>
           <h2 className="mb-2 text-sm font-semibold text-foreground">
             Matériau
           </h2>
-          <div className="flex flex-wrap gap-2">
-            {TERRAIN_MATERIALS.map((material) => {
-              const active =
-                (tool.selectedMaterialId ?? DEFAULT_MATERIAL_ID) ===
-                material.id;
-              return (
-                <button
-                  key={material.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() =>
-                    onToolChange({ ...tool, selectedMaterialId: material.id })
-                  }
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
-                    active
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="size-3 rounded-full border border-black/10"
-                    style={{ backgroundColor: materialColor(material.id) }}
+          {MATERIAL_GROUPS.map((group) => (
+            <div key={group.label} className="mb-3 last:mb-0">
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">
+                {group.label}
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {TERRAIN_MATERIALS.filter(
+                  (material) => material.buildable === group.buildable,
+                ).map((material) => (
+                  <MaterialButton
+                    key={material.id}
+                    material={material}
+                    active={selectedMaterialId === material.id}
+                    onSelect={() =>
+                      onToolChange({ ...tool, selectedMaterialId: material.id })
+                    }
                   />
-                  {material.label}
-                </button>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       );
+    }
     case "building": {
       const selectedId = tool.selectedBuildingId ?? DEFAULT_BUILDING_ID;
       return (
@@ -162,4 +173,35 @@ function ToolContextContent({
         </h2>
       );
   }
+}
+
+function MaterialButton({
+  material,
+  active,
+  onSelect,
+}: {
+  material: MaterialOption;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      className={cn(
+        "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+        active
+          ? "border-primary bg-primary/10 text-foreground"
+          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className="size-3 rounded-full border border-black/10"
+        style={{ backgroundColor: materialColor(material.id) }}
+      />
+      {material.label}
+    </button>
+  );
 }

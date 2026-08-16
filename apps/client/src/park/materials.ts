@@ -3,11 +3,12 @@ import { TERRAIN_COLORS, type TerrainMaterial } from "../rendering/grid";
 export interface MaterialOption {
   id: TerrainMaterial;
   label: string;
+  buildable: boolean;
 }
 
 export const TERRAIN_MATERIALS: MaterialOption[] = [
-  { id: "grass", label: "Herbe" },
-  { id: "water", label: "Eau" },
+  { id: "grass", label: "Herbe", buildable: true },
+  { id: "water", label: "Eau", buildable: false },
 ];
 
 export const DEFAULT_MATERIAL_ID: TerrainMaterial = "grass";
