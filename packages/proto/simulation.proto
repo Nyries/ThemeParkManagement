@@ -109,6 +109,12 @@ message InfrastructureCell {
   int32 to_z = 3;
 }
 
+message BuildingCell {
+  Coord coord = 1;
+  string building_id = 2;
+  string template_id = 3;
+}
+
 message MapResponse {
   int32 min_x = 1;
   int32 max_x = 2;
@@ -117,5 +123,5 @@ message MapResponse {
   repeated TerrainCell terrain = 5;
   repeated InfrastructureCell infrastructure = 6;
   Coord entrance = 7;
-  
+  repeated BuildingCell building = 8;
 }
