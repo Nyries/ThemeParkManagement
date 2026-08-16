@@ -365,6 +365,18 @@ fn relieve_needs_at_arrival(
     v.last_visited.insert(cell, current_tick);
 }
 
+/// Utility of a template for `v`: `needs_relief` dot product, plus the same generic
+/// entertainment term `relieve_needs_at_arrival` grants on arrival for any Attraction
+/// (catalog templates leave `needs_relief` empty for entertainment) — without this,
+/// no Attraction could ever outscore plain wandering in `best_destination`.
+fn template_utility(v: &Visitor, template: &crate::building_template::BuildingTemplate) -> f32 {
+    let mut utility = utility_for(&v.needs, &template.needs_relief);
+    if template.category == BuildingCategory::Attraction {
+        utility += v.needs.get(ENTERTAINMENT).copied().unwrap_or(0.0) * ENTERTAINMENT_RELIEF;
+    }
+    utility
+}
+
 /// Picks the reachable cell with the best destination score. Only strictly positive
 /// scores count — a cell with no relevant building never outscores wandering.
 fn best_destination(
@@ -382,9 +394,7 @@ fn best_destination(
             let (_, cost) = park_map.find_path(old_cell, cell)?;
             let template = adjacent_building(park_map, cell)
                 .and_then(|building| catalog.get(&building.template_id));
-            let utility = template
-                .map(|template| utility_for(&v.needs, &template.needs_relief))
-                .unwrap_or(0.0);
+            let utility = template.map(|t| template_utility(v, t)).unwrap_or(0.0);
             let affinity = template
                 .map(|template| affinity_for(&v.profile, &template.tags))
                 .unwrap_or(AFFINITY_DEFAULT);
@@ -1676,6 +1686,59 @@ mod tests {
                 }"#,
             ))
             .unwrap()
+        }
+
+        fn catalog_with_attraction_with_no_declared_needs_relief() -> BuildingCatalog {
+            // Mirrors the real catalog: every Attraction template has an empty
+            // `needs_relief` (entertainment relief is only granted on arrival).
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "coaster",
+                            "name": "Coaster",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "long_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": {},
+                            "tags": ["thrill"]
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
+        #[test]
+        fn test_prefers_an_attraction_with_no_declared_needs_relief_over_wandering_when_entertainment_is_urgent() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // plain candidate
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path); // adjacent to the coaster
+            park_map.set_building(
+                3,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0);
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_attraction_with_no_declared_needs_relief(),
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.target, (2, 0, 0));
         }
 
         #[test]
