@@ -71,15 +71,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         use tokio::io::{AsyncBufReadExt, BufReader};
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        println!("Dev commands: pause | resume | reset");
+        println!("Dev commands: pause | resume | reset | funds <amount>");
         while let Ok(Some(line)) = lines.next_line().await {
             let mut w = world_clone_stdin.lock().unwrap();
-            match line.trim() {
-                "pause" => { w.paused = true; println!("Simulation paused."); }
-                "resume" => { w.paused = false; println!("Simulation resumed."); }
-                "reset" => { w.reset_visitors(); println!("Visitors reset."); }
-                other if !other.is_empty() => println!("Unknown command: {other}"),
-                _ => {}
+            let mut parts = line.split_whitespace();
+            match parts.next() {
+                Some("pause") => { w.paused = true; println!("Simulation paused."); }
+                Some("resume") => { w.paused = false; println!("Simulation resumed."); }
+                Some("reset") => { w.reset_visitors(); println!("Visitors reset."); }
+                Some("funds") => match parts.next() {
+                    None => println!("Current balance: {}", w.balance),
+                    Some(amount_str) => match amount_str.parse::<f64>() {
+                        Ok(amount) => {
+                            w.balance += amount;
+                            println!("Funds added: {amount}. New balance: {}", w.balance);
+                        }
+                        Err(_) => println!("Usage: funds [amount]"),
+                    },
+                },
+                Some(other) => println!("Unknown command: {other}"),
+                None => {}
             }
         }
     });

@@ -53,5 +53,7 @@ Then type one of:
 - `pause` — freezes the simulation (visitors stop moving, `tick_count` stops advancing)
 - `resume` — resumes ticking normally
 - `reset` — clears all visitors currently in the park (does not touch the map or `tick_count`)
+- `funds` — prints the park's current balance
+- `funds <amount>` — adds `<amount>` to the park's balance (accepts decimals and negative amounts); e.g. `funds 10000`
 
 Detach without killing the process: `Ctrl+P` then `Ctrl+Q` (not `Ctrl+C`, which sends SIGINT and stops the engine).
