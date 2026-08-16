@@ -71,6 +71,7 @@ describe("useParkSocket", () => {
         terrain: [],
         infrastructure: [],
         entrance: undefined,
+        building: [],
       };
       mockOnce.mockImplementation((_event, callback) => callback(mockMap));
 

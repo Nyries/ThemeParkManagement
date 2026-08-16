@@ -12,6 +12,7 @@ function emptyResponse(overrides = {}) {
     terrain: [],
     infrastructure: [],
     entrance: undefined,
+    building: [],
     ...overrides,
   };
 }
@@ -88,5 +89,35 @@ describe("mapFromResponse", () => {
     }));
 
     expect(grid.terrain.flat().every((material) => material === "grass")).toBe(true);
+  });
+
+  it("groups building cells by building id at their offset position", () => {
+    const grid = mapFromResponse(emptyResponse({
+      building: [
+        { coord: { x: 0, y: 0, z: 0 }, buildingId: "b1", templateId: "shop" },
+        { coord: { x: 1, y: 0, z: 0 }, buildingId: "b1", templateId: "shop" },
+        { coord: { x: 2, y: 1, z: 0 }, buildingId: "b2", templateId: "restaurant" },
+      ],
+    }));
+
+    expect(grid.buildings.size).toBe(2);
+    expect(grid.buildings.get("b1")).toEqual({
+      templateId: "shop",
+      cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+    });
+    expect(grid.buildings.get("b2")).toEqual({
+      templateId: "restaurant",
+      cells: [{ x: 2, y: 1 }],
+    });
+  });
+
+  it("ignores building cells that are not on level z=0", () => {
+    const grid = mapFromResponse(emptyResponse({
+      building: [
+        { coord: { x: 0, y: 0, z: 1 }, buildingId: "b1", templateId: "shop" },
+      ],
+    }));
+
+    expect(grid.buildings.size).toBe(0);
   });
 });

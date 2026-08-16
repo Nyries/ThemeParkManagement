@@ -9,9 +9,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::simulation::{
-    CommandRequest, CommandResponse, Coord, ErrorCode, InfrastructureCell, InfrastructureKind,
-    MapResponse, StateRequest, TerrainCell, WorldStateResponse, command_request::Command,
-    simulation_service_server::SimulationService,
+    BuildingCell, CommandRequest, CommandResponse, Coord, ErrorCode, InfrastructureCell,
+    InfrastructureKind, MapResponse, StateRequest, TerrainCell, WorldStateResponse,
+    command_request::Command, simulation_service_server::SimulationService,
 };
 
 #[derive(Clone)]
@@ -258,6 +258,16 @@ impl SimulationService for SimulationEngineService {
             })
             .collect();
 
+        let building = map
+            .building
+            .iter()
+            .map(|(&(x, y, z), building_id)| BuildingCell {
+                coord: Some(Coord { x, y, z }),
+                building_id: building_id.building_id.clone(),
+                template_id: building_id.template_id.clone(),
+            })
+            .collect();
+
         let entrance = map.entrance.map(|(x, y, z)| Coord { x, y, z });
 
         Ok(Response::new(MapResponse {
@@ -268,6 +278,7 @@ impl SimulationService for SimulationEngineService {
             terrain,
             infrastructure,
             entrance,
+            building,
         }))
     }
 }
@@ -279,8 +290,8 @@ mod tests {
         game::GameWorld,
         map::Parcel,
         simulation::{
-            ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure,
-            RemoveBuilding, RemoveInfrastructure, Rotation,
+            ApplyTerrain, BuildingCell, Coord, InfrastructureKind, PlaceBuilding,
+            PlaceInfrastructure, RemoveBuilding, RemoveInfrastructure, Rotation,
         },
     };
     use std::sync::{Arc, Mutex};
@@ -669,6 +680,40 @@ mod tests {
         // 4. Assertions
         let inner = response.unwrap().into_inner();
         assert_eq!(inner.entrance, Some(Coord { x: 2, y: 3, z: 0 }));
+    }
+
+    #[tokio::test]
+    async fn test_get_map_returns_building_cells() {
+        // 1. Initialization of a world and a test service
+        let service = build_service();
+        service.world.lock().unwrap().park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "building-1".into(),
+                template_id: "restaurant-1".into(),
+            },
+        );
+
+        // 2. Creating a mock gRPC request
+        let request = Request::new(StateRequest {
+            park_id: "1".into(),
+        });
+
+        // 3. Calling the gRPC method
+        let response = service.get_map(request).await;
+
+        // 4. Assertions
+        let inner = response.unwrap().into_inner();
+        assert_eq!(
+            inner.building,
+            vec![BuildingCell {
+                coord: Some(Coord { x: 0, y: 0, z: 0 }),
+                building_id: "building-1".into(),
+                template_id: "restaurant-1".into(),
+            }]
+        );
     }
 
     #[tokio::test]

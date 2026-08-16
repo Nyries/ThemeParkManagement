@@ -254,6 +254,12 @@ export interface InfrastructureCell {
   toZ: number;
 }
 
+export interface BuildingCell {
+  coord: Coord | undefined;
+  buildingId: string;
+  templateId: string;
+}
+
 export interface MapResponse {
   minX: number;
   maxX: number;
@@ -262,6 +268,7 @@ export interface MapResponse {
   terrain: TerrainCell[];
   infrastructure: InfrastructureCell[];
   entrance: Coord | undefined;
+  building: BuildingCell[];
 }
 
 function createBaseCoord(): Coord {
@@ -1528,8 +1535,108 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
   },
 };
 
+function createBaseBuildingCell(): BuildingCell {
+  return { coord: undefined, buildingId: "", templateId: "" };
+}
+
+export const BuildingCell: MessageFns<BuildingCell> = {
+  encode(message: BuildingCell, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.coord !== undefined) {
+      Coord.encode(message.coord, writer.uint32(10).fork()).join();
+    }
+    if (message.buildingId !== "") {
+      writer.uint32(18).string(message.buildingId);
+    }
+    if (message.templateId !== "") {
+      writer.uint32(26).string(message.templateId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BuildingCell {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBuildingCell();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.coord = Coord.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.buildingId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.templateId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BuildingCell {
+    return {
+      coord: isSet(object.coord) ? Coord.fromJSON(object.coord) : undefined,
+      buildingId: isSet(object.buildingId)
+        ? globalThis.String(object.buildingId)
+        : isSet(object.building_id)
+        ? globalThis.String(object.building_id)
+        : "",
+      templateId: isSet(object.templateId)
+        ? globalThis.String(object.templateId)
+        : isSet(object.template_id)
+        ? globalThis.String(object.template_id)
+        : "",
+    };
+  },
+
+  toJSON(message: BuildingCell): unknown {
+    const obj: any = {};
+    if (message.coord !== undefined) {
+      obj.coord = Coord.toJSON(message.coord);
+    }
+    if (message.buildingId !== "") {
+      obj.buildingId = message.buildingId;
+    }
+    if (message.templateId !== "") {
+      obj.templateId = message.templateId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BuildingCell>, I>>(base?: I): BuildingCell {
+    return BuildingCell.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BuildingCell>, I>>(object: I): BuildingCell {
+    const message = createBaseBuildingCell();
+    message.coord = (object.coord !== undefined && object.coord !== null) ? Coord.fromPartial(object.coord) : undefined;
+    message.buildingId = object.buildingId ?? "";
+    message.templateId = object.templateId ?? "";
+    return message;
+  },
+};
+
 function createBaseMapResponse(): MapResponse {
-  return { minX: 0, maxX: 0, minY: 0, maxY: 0, terrain: [], infrastructure: [], entrance: undefined };
+  return { minX: 0, maxX: 0, minY: 0, maxY: 0, terrain: [], infrastructure: [], entrance: undefined, building: [] };
 }
 
 export const MapResponse: MessageFns<MapResponse> = {
@@ -1554,6 +1661,9 @@ export const MapResponse: MessageFns<MapResponse> = {
     }
     if (message.entrance !== undefined) {
       Coord.encode(message.entrance, writer.uint32(58).fork()).join();
+    }
+    for (const v of message.building) {
+      BuildingCell.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -1621,6 +1731,14 @@ export const MapResponse: MessageFns<MapResponse> = {
           message.entrance = Coord.decode(reader, reader.uint32());
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.building.push(BuildingCell.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1659,6 +1777,9 @@ export const MapResponse: MessageFns<MapResponse> = {
         ? object.infrastructure.map((e: any) => InfrastructureCell.fromJSON(e))
         : [],
       entrance: isSet(object.entrance) ? Coord.fromJSON(object.entrance) : undefined,
+      building: globalThis.Array.isArray(object?.building)
+        ? object.building.map((e: any) => BuildingCell.fromJSON(e))
+        : [],
     };
   },
 
@@ -1685,6 +1806,9 @@ export const MapResponse: MessageFns<MapResponse> = {
     if (message.entrance !== undefined) {
       obj.entrance = Coord.toJSON(message.entrance);
     }
+    if (message.building?.length) {
+      obj.building = message.building.map((e) => BuildingCell.toJSON(e));
+    }
     return obj;
   },
 
@@ -1702,6 +1826,7 @@ export const MapResponse: MessageFns<MapResponse> = {
     message.entrance = (object.entrance !== undefined && object.entrance !== null)
       ? Coord.fromPartial(object.entrance)
       : undefined;
+    message.building = object.building?.map((e) => BuildingCell.fromPartial(e)) || [];
     return message;
   },
 };
