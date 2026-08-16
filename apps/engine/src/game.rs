@@ -7,10 +7,11 @@ use crate::{
         AFFINITY_DEFAULT, COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, DETOUR_BIAS_STRENGTH,
         DETOUR_DENSITY_THRESHOLD, DETOUR_LOOKAHEAD_CELLS, ENTERTAINMENT_RELIEF,
         SPAWN_INTERVAL_TICKS, STALL_DISTANCE_EPSILON, STALL_TICKS_THRESHOLD,
-        UNSTALL_IMPULSE_MAGNITUDE,
+        UNSTALL_IMPULSE_MAGNITUDE, VISITOR_RADIUS,
     },
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
     map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
+    queue::{QueueState, advance_toward, estimated_wait_for},
     visitor::{
         ENTERTAINMENT, Visitor, VisitorId, affinity_for, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
@@ -34,6 +35,8 @@ pub struct GameWorld {
     pub dirty_chunks: HashSet<(i32, i32)>,
     pub metrics: ParkMetricsAccumulator,
     pub paused: bool,
+    /// Keyed by attraction `BuildingId.building_id`. See `queue::QueueState`.
+    pub queues: HashMap<String, QueueState>,
 }
 
 impl Default for GameWorld {
@@ -60,6 +63,7 @@ impl GameWorld {
             dirty_chunks: HashSet::new(),
             metrics: ParkMetricsAccumulator::default(),
             paused: false,
+            queues: HashMap::new(),
         }
     }
 
@@ -105,12 +109,28 @@ impl GameWorld {
             let old_cell = cell_of(v.position);
             let position_before_advance = v.position;
 
+            if let Some(attraction_id) = v.queue_attraction.clone() {
+                let moved = advance_visitor_in_queue(v, &self.queues, &attraction_id, dt);
+                update_needs_and_satisfaction(v, moved);
+
+                let new_cell = cell_of(v.position);
+                update_density_and_dirty_chunks(
+                    &mut self.density,
+                    &mut self.dirty_chunks,
+                    &v.id,
+                    old_cell,
+                    new_cell,
+                );
+                continue;
+            }
+
             redirect_if_expired(v, &self.park_map, old_cell, exit);
             redirect_if_leaving_early(v, &self.park_map, old_cell, exit);
             assign_new_target_if_arrived(
                 v,
                 &self.park_map,
                 &self.building_catalog,
+                &self.queues,
                 old_cell,
                 self.tick_count,
             );
@@ -182,6 +202,35 @@ impl GameWorld {
     pub fn reset_visitors(&mut self) {
         self.visitors.clear();
         self.density.clear();
+    }
+
+    /// Recomputes `attraction_building_id`'s cached chain from the current map
+    /// geometry, preserving its occupants — call whenever queue infrastructure changes.
+    pub fn sync_queue_chain(&mut self, attraction_building_id: &str) {
+        let chain = crate::queue::derive_queue_chain(&self.park_map, attraction_building_id);
+        self.queues
+            .entry(attraction_building_id.to_string())
+            .or_default()
+            .chain = chain;
+    }
+
+    /// Moves a visitor from normal pathfinding-driven movement into an attraction's
+    /// queue — false (no-op) if the queue is already full. The caller is expected to
+    /// have already checked the visitor is at the chain's tail (queue entrance); the
+    /// trigger for that lives with target resolution (TPM-156), not here.
+    pub fn try_join_queue(&mut self, visitor_id: &str, attraction_building_id: &str) -> bool {
+        let diameter = visitor_diameter();
+        let queue = self.queues.entry(attraction_building_id.to_string()).or_default();
+        if queue.is_full(diameter) {
+            return false;
+        }
+        queue.occupants.push_back(visitor_id.to_string());
+
+        if let Some(v) = self.visitors.iter_mut().find(|v| v.id == visitor_id) {
+            v.queue_attraction = Some(attraction_building_id.to_string());
+            v.path.clear();
+        }
+        true
     }
 }
 
@@ -378,11 +427,14 @@ fn template_utility(v: &Visitor, template: &crate::building_template::BuildingTe
 }
 
 /// Picks the reachable cell with the best destination score. Only strictly positive
-/// scores count — a cell with no relevant building never outscores wandering.
+/// scores count — a cell with no relevant building never outscores wandering. `coût`
+/// adds the estimated queue wait (0 if the adjacent building has no active queue) to
+/// the plain movement cost, so a saturated queue naturally loses out to other targets.
 fn best_destination(
     v: &Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
+    queues: &HashMap<String, QueueState>,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) -> Option<(i32, i32, i32)> {
@@ -391,15 +443,23 @@ fn best_destination(
         .keys()
         .filter(|&&cell| cell != old_cell)
         .filter_map(|&cell| {
-            let (_, cost) = park_map.find_path(old_cell, cell)?;
-            let template = adjacent_building(park_map, cell)
-                .and_then(|building| catalog.get(&building.template_id));
+            let (_, movement_cost) = park_map.find_path(old_cell, cell)?;
+            let building = adjacent_building(park_map, cell);
+            let template = building.and_then(|b| catalog.get(&b.template_id));
             let utility = template.map(|t| template_utility(v, t)).unwrap_or(0.0);
             let affinity = template
                 .map(|template| affinity_for(&v.profile, &template.tags))
                 .unwrap_or(AFFINITY_DEFAULT);
             let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
-            let score = score_for(utility, affinity, novelty, cost as f32);
+            let wait = match (building, template) {
+                (Some(b), Some(t)) => queues
+                    .get(&b.building_id)
+                    .map(|queue| estimated_wait_for(queue, t))
+                    .unwrap_or(0.0),
+                _ => 0.0,
+            };
+            let cost = movement_cost as f32 + wait;
+            let score = score_for(utility, affinity, novelty, cost);
             Some((cell, score))
         })
         .filter(|&(_, score)| score > 0.0)
@@ -411,13 +471,14 @@ fn assign_new_target_if_arrived(
     v: &mut Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
+    queues: &HashMap<String, QueueState>,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) {
     if v.path.is_empty() && !v.is_leaving {
         relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
 
-        let new_target = best_destination(v, park_map, catalog, old_cell, current_tick)
+        let new_target = best_destination(v, park_map, catalog, queues, old_cell, current_tick)
             .or_else(|| park_map.random_walkable_cell(old_cell))
             .unwrap_or(old_cell);
         v.target = new_target;
@@ -431,6 +492,35 @@ fn recompute_path_if_blocked(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32
     {
         v.path = park_map.path_excluding_start(old_cell, v.target);
     }
+}
+
+fn visitor_diameter() -> f32 {
+    2.0 * VISITOR_RADIUS
+}
+
+/// Moves a queued visitor toward its FIFO slot along the cached chain — continuous,
+/// capped by the same speed as walking a plain path, never A*. Returns distance moved.
+fn advance_visitor_in_queue(
+    v: &mut Visitor,
+    queues: &HashMap<String, QueueState>,
+    attraction_id: &str,
+    dt: f32,
+) -> f32 {
+    let Some(queue) = queues.get(attraction_id) else {
+        return 0.0;
+    };
+    let Some(index) = queue.occupants.iter().position(|id| id == &v.id) else {
+        return 0.0;
+    };
+    let Some(target) = queue.target_position(index, visitor_diameter()) else {
+        return 0.0;
+    };
+
+    let before = v.position;
+    // Same base speed as a plain path (Queue's own base_speed_for arm matches it).
+    let max_step = base_speed_for(&crate::map::InfrastructureShape::Path) * dt;
+    v.position = advance_toward(v.position, target, max_step);
+    distance_moved(before, v.position)
 }
 
 fn local_density_at(
@@ -1711,6 +1801,77 @@ mod tests {
             .unwrap()
         }
 
+        fn catalog_with_two_identical_coasters() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "coaster",
+                            "name": "Coaster",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "long_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": {},
+                            "tags": ["thrill"],
+                            "cycle_capacity": 1,
+                            "cycle_duration_ticks": 1000
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
+        #[test]
+        fn test_prefers_the_attraction_with_the_shorter_estimated_queue_wait() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // adjacent to busy
+            park_map.set_infrastructure(-1, 0, 0, InfrastructureShape::Path); // adjacent to free
+            park_map.set_building(
+                2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "busy".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            park_map.set_building(
+                -2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "free".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "busy".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0)],
+                    occupants: (0..5).map(|i| i.to_string()).collect(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0);
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_two_identical_coasters(),
+                &queues,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.target, (-1, 0, 0)); // free: no queue wait, same utility/affinity/cost otherwise
+        }
+
         #[test]
         fn test_prefers_an_attraction_with_no_declared_needs_relief_over_wandering_when_entertainment_is_urgent() {
             let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
@@ -1734,6 +1895,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_attraction_with_no_declared_needs_relief(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1776,6 +1938,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_thrill_and_family_rides(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1789,7 +1952,14 @@ mod tests {
             let mut v = arrived_visitor();
             v.path = vec![(2, 2, 0)];
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert_eq!(v.path, vec![(2, 2, 0)]);
         }
@@ -1800,7 +1970,14 @@ mod tests {
             let mut v = arrived_visitor();
             v.is_leaving = true;
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert!(v.path.is_empty());
             assert_eq!(v.target, (0, 0, 0));
@@ -1813,7 +1990,14 @@ mod tests {
             park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
             assert_eq!(v.path, vec![(1, 0, 0)]);
@@ -1826,7 +2010,14 @@ mod tests {
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert!(v.path.is_empty());
         }
@@ -1854,6 +2045,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1883,6 +2075,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
+                &HashMap::new(),
                 (0, 0, 0),
                 42,
             );
@@ -2313,6 +2506,139 @@ mod tests {
 
             assert_eq!(world.tick_count, 42);
             assert!(world.park_map.get_infrastructure(0, 0, 0).is_some());
+        }
+    }
+
+    mod sync_queue_chain {
+        use super::*;
+
+        #[test]
+        fn test_populates_the_chain_from_the_map_geometry() {
+            let mut world = GameWorld::new();
+            world.park_map.set_building(
+                0,
+                0,
+                0,
+                BuildingId {
+                    building_id: "coaster".into(),
+                    template_id: "roller_coaster".into(),
+                },
+            );
+            world.park_map.set_infrastructure(
+                1,
+                0,
+                0,
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId {
+                        building_id: "coaster".into(),
+                        template_id: "roller_coaster".into(),
+                    },
+                },
+            );
+
+            world.sync_queue_chain("coaster");
+
+            assert_eq!(world.queues["coaster"].chain, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_preserves_occupants_across_a_resync() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![],
+                    occupants: vec!["v1".to_string()].into(),
+                },
+            );
+
+            world.sync_queue_chain("coaster");
+
+            assert_eq!(world.queues["coaster"].occupants, vec!["v1".to_string()]);
+        }
+    }
+
+    mod try_join_queue {
+        use super::*;
+
+        fn visitor_at(id: &str, position: (f32, f32, f32)) -> Visitor {
+            Visitor {
+                id: id.into(),
+                position,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_adds_the_visitor_to_occupants_and_marks_them_as_queued() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0), (10, 0, 0)],
+                    occupants: Default::default(),
+                },
+            );
+            world.visitors.push(visitor_at("a", (10.0, 0.0, 0.0)));
+            world.visitors[0].path = vec![(5, 5, 0)];
+
+            let joined = world.try_join_queue("a", "coaster");
+
+            assert!(joined);
+            assert_eq!(world.queues["coaster"].occupants, vec!["a".to_string()]);
+            assert_eq!(world.visitors[0].queue_attraction, Some("coaster".to_string()));
+            assert!(world.visitors[0].path.is_empty());
+        }
+
+        #[test]
+        fn test_refuses_when_the_queue_is_already_full() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0)], // capacity 1 at any diameter
+                    occupants: vec!["existing".to_string()].into(),
+                },
+            );
+            world.visitors.push(visitor_at("a", (0.0, 0.0, 0.0)));
+
+            let joined = world.try_join_queue("a", "coaster");
+
+            assert!(!joined);
+            assert_eq!(world.queues["coaster"].occupants.len(), 1);
+            assert_eq!(world.visitors[0].queue_attraction, None);
+        }
+    }
+
+    mod tick_queue_advancement {
+        use super::*;
+
+        #[test]
+        fn test_a_queued_visitor_advances_toward_its_slot_instead_of_following_a_path() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0), (1, 0, 0)],
+                    occupants: vec!["a".to_string()].into(),
+                },
+            );
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (1.0, 0.0, 0.0),
+                path: vec![(5, 5, 0)], // stale — must be ignored while queued
+                target: (9, 9, 0),      // stale — must stay untouched while queued
+                queue_attraction: Some("coaster".to_string()),
+                ..Default::default()
+            });
+
+            world.tick(1.0); // large dt: should reach the front-of-queue slot (index 0)
+
+            let visitor = &world.visitors[0];
+            assert_eq!(visitor.position, (0.0, 0.0, 0.0));
+            assert_eq!(visitor.target, (9, 9, 0)); // never went through assign_new_target_if_arrived
         }
     }
 }

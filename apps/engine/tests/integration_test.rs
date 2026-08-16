@@ -82,6 +82,7 @@ async fn test_send_command_with_place_infrastructure_succeeds() {
         kind: InfrastructureKind::Path.into(),
         to_z: 0,
         coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
+        attraction_building_id: String::new(),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -104,6 +105,7 @@ async fn test_send_command_with_remove_infrastructure_succeeds() {
         kind: InfrastructureKind::Path.into(),
         to_z: 0,
         coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
+        attraction_building_id: String::new(),
     };
     client
         .send_command(Request::new(CommandRequest {
