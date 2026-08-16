@@ -82,6 +82,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut w = world_clone_stdin.lock().unwrap();
             let mut parts = line.split_whitespace();
             match parts.next() {
+                Some("help") => {
+                    println!("Dev commands: help | pause | resume | reset {{visitors | map }} | funds <amount>");
+                }
                 Some("pause") => {
                     w.paused = true;
                     println!("Simulation paused.");
