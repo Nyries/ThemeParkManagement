@@ -18,7 +18,7 @@ describe("InspectorPanel", () => {
     expect(screen.getByText("Aucune sélection")).toBeInTheDocument();
   });
 
-  it("shows the selection label when something is selected", () => {
+  it("shows the selection label when something is selected and no tool is active", () => {
     render(
       <InspectorPanel
         selection={{ kind: "building", label: "Montagnes russes" }}
@@ -29,11 +29,55 @@ describe("InspectorPanel", () => {
     expect(screen.getByText("Montagnes russes")).toBeInTheDocument();
   });
 
-  it("always renders the journal placeholder", () => {
+  it("never shows the selection while a construction tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={{ kind: "building", label: "Montagnes russes" }}
+        tool={{ mode: "terrain" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Montagnes russes")).not.toBeInTheDocument();
+  });
+
+  it("shows the selection label while the remove tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={{ kind: "building", label: "Montagnes russes" }}
+        tool={{ mode: "remove" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Montagnes russes")).toBeInTheDocument();
+  });
+
+  it("renders the journal placeholder when no tool is active", () => {
     render(
       <InspectorPanel selection={null} tool={NO_TOOL} onToolChange={vi.fn()} />,
     );
     expect(screen.getByText("Journal")).toBeInTheDocument();
+  });
+
+  it("renders the journal placeholder while the remove tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "remove" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Journal")).toBeInTheDocument();
+  });
+
+  it("hides the journal placeholder while a construction tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "terrain" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Journal")).not.toBeInTheDocument();
   });
 
   it("shows the material selector when the terrain tool is active, defaulting to grass", () => {

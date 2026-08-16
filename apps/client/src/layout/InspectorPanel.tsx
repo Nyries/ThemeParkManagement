@@ -20,21 +20,32 @@ interface InspectorPanelProps {
   onToolChange: (tool: ToolState) => void;
 }
 
+// Terrain/infrastructure/building take over the whole panel with their own
+// tool-specific content — the journal (like the selection info) only makes
+// sense alongside remove or no tool active, never crowding those out.
+function showsJournal(tool: ToolState): boolean {
+  return tool.mode === null || tool.mode === "remove";
+}
+
 export function InspectorPanel({ selection, tool, onToolChange }: InspectorPanelProps) {
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border p-4">
       <ToolContextContent selection={selection} tool={tool} onToolChange={onToolChange} />
 
-      <Separator className="my-4" />
+      {showsJournal(tool) && (
+        <>
+          <Separator className="my-4" />
 
-      <div>
-        <h3 className="mb-2 text-xs font-medium text-muted-foreground">
-          Journal
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          Journal des événements — à venir.
-        </p>
-      </div>
+          <div>
+            <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+              Journal
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Journal des événements — à venir.
+            </p>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -135,12 +146,16 @@ function ToolContextContent({
         </h2>
       );
     case "remove":
+      // Remove is the one tool where selection info (what you're about to
+      // remove) is relevant — terrain/infrastructure/building always show
+      // their own content above instead, never the current selection.
       return (
         <h2 className="text-sm font-semibold text-foreground">
-          Cliquer un élément à retirer
+          {selection ? selection.label : "Cliquer un élément à retirer"}
         </h2>
       );
     default:
+      // No tool active: same selection-or-neutral content as remove.
       return (
         <h2 className="text-sm font-semibold text-foreground">
           {selection ? selection.label : "Aucune sélection"}
