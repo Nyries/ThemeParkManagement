@@ -1,10 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    balance::{COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, SPAWN_INTERVAL_TICKS},
-    building_template::{BuildingCatalog, CatalogSource},
-    map::{Bounds3d, ParkMap, base_speed_for},
-    visitor::{Visitor, VisitorId, grow_needs, penalty_for, repulsion_force, speed_at, update_satisfaction},
+    balance::{
+        AFFINITY_DEFAULT, COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, ENTERTAINMENT_RELIEF,
+        SPAWN_INTERVAL_TICKS,
+    },
+    building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
+    map::{BuildingId, Bounds3d, ParkMap, base_speed_for},
+    visitor::{
+        ENTERTAINMENT, Visitor, VisitorId, gain_for, grow_needs, novelty_for, penalty_for,
+        relieve_need, repulsion_force, score_for, speed_at, update_satisfaction, utility_for,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -96,7 +102,13 @@ impl GameWorld {
 
             redirect_if_expired(v, &self.park_map, old_cell, exit);
             redirect_if_leaving_early(v, &self.park_map, old_cell, exit);
-            assign_new_target_if_arrived(v, &self.park_map, old_cell);
+            assign_new_target_if_arrived(
+                v,
+                &self.park_map,
+                &self.building_catalog,
+                old_cell,
+                self.tick_count,
+            );
             recompute_path_if_blocked(v, &self.park_map, old_cell);
 
             let speed = compute_speed(&self.park_map, &self.density, old_cell);
@@ -222,9 +234,108 @@ fn update_needs_and_satisfaction(v: &mut Visitor, distance_moved: f32) {
     v.satisfaction = update_satisfaction(v.satisfaction, 0.0, total_penalty);
 }
 
-fn assign_new_target_if_arrived(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32)) {
+/// A visitor never stands on a building cell (buildings carry no infrastructure, cf.
+/// `is_walkable`), so "using" one means standing on an adjacent walkable cell.
+fn adjacent_building(park_map: &ParkMap, cell: (i32, i32, i32)) -> Option<&BuildingId> {
+    let (x, y, z) = cell;
+    [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .find_map(|(dx, dy)| park_map.get_building(x + dx, y + dy, z))
+}
+
+/// Applies the needs relief for the building adjacent to a just-reached cell (if any),
+/// rolls the resulting gain into satisfaction, and records the visit for the novelty
+/// factor (TPM-44 §Pathfinding piloté par les besoins). No-op if nothing is adjacent.
+fn relieve_needs_at_arrival(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    cell: (i32, i32, i32),
+    current_tick: u64,
+) {
+    let Some(building) = adjacent_building(park_map, cell) else {
+        return;
+    };
+    let Some(template) = catalog.get(&building.template_id) else {
+        return;
+    };
+
+    let mut total_gain = 0.0;
+    for (need, &relief) in &template.needs_relief {
+        let level_before = v.needs.get(need).copied().unwrap_or(0.0);
+        let threshold = v
+            .comfort_thresholds
+            .get(need)
+            .copied()
+            .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+        total_gain += gain_for(relief as f32, level_before, threshold);
+        relieve_need(&mut v.needs, need, relief as f32);
+    }
+
+    // Entertainment isn't declared per-template like the other needs — any Attraction
+    // relieves it generically (Wiki des Formules §Besoins et satisfaction).
+    if template.category == BuildingCategory::Attraction {
+        let level_before = v.needs.get(ENTERTAINMENT).copied().unwrap_or(0.0);
+        let threshold = v
+            .comfort_thresholds
+            .get(ENTERTAINMENT)
+            .copied()
+            .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+        total_gain += gain_for(ENTERTAINMENT_RELIEF, level_before, threshold);
+        relieve_need(&mut v.needs, ENTERTAINMENT, ENTERTAINMENT_RELIEF);
+    }
+
+    v.satisfaction = update_satisfaction(v.satisfaction, total_gain, 0.0);
+    v.last_visited.insert(cell, current_tick);
+}
+
+/// Picks the reachable walkable cell with the best destination score (TPM-44 §Choix de
+/// destination) — `utilité` comes from any building adjacent to the candidate,
+/// `affinité` is fixed at `AFFINITY_DEFAULT` pending TPM-48, `coût` is the A* cost
+/// alone (queue wait time isn't modeled yet, TPM-45). Only candidates with a strictly
+/// positive score are considered — a cell with no relevant building never outscores
+/// staying open to ties, so callers fall back to plain wandering instead.
+fn best_destination(
+    v: &Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    old_cell: (i32, i32, i32),
+    current_tick: u64,
+) -> Option<(i32, i32, i32)> {
+    park_map
+        .infrastructure
+        .keys()
+        .filter(|&&cell| cell != old_cell)
+        .filter_map(|&cell| {
+            let (_, cost) = park_map.find_path(old_cell, cell)?;
+            let needs_relief = adjacent_building(park_map, cell)
+                .and_then(|building| catalog.get(&building.template_id))
+                .map(|template| &template.needs_relief);
+            let utility = needs_relief
+                .map(|relief| utility_for(&v.needs, relief))
+                .unwrap_or(0.0);
+            let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
+            let score = score_for(utility, AFFINITY_DEFAULT, novelty, cost as f32);
+            Some((cell, score))
+        })
+        .filter(|&(_, score)| score > 0.0)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(cell, _)| cell)
+}
+
+fn assign_new_target_if_arrived(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    old_cell: (i32, i32, i32),
+    current_tick: u64,
+) {
     if v.path.is_empty() && !v.is_leaving {
-        let new_target = park_map.random_walkable_cell(old_cell).unwrap_or(old_cell);
+        relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
+
+        let new_target = best_destination(v, park_map, catalog, old_cell, current_tick)
+            .or_else(|| park_map.random_walkable_cell(old_cell))
+            .unwrap_or(old_cell);
         v.target = new_target;
         v.path = park_map.path_excluding_start(old_cell, new_target);
     }
@@ -1100,13 +1211,38 @@ mod tests {
             }
         }
 
+        fn empty_catalog() -> BuildingCatalog {
+            BuildingCatalog::default()
+        }
+
+        fn catalog_with_snack_stand() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "snack_stand",
+                            "name": "Snack Stand",
+                            "category": "ShopUtility",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "short_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": { "hunger": 40 },
+                            "tags": []
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
         #[test]
         fn test_does_nothing_when_path_is_not_empty() {
             let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
             let mut v = arrived_visitor();
             v.path = vec![(2, 2, 0)];
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert_eq!(v.path, vec![(2, 2, 0)]);
         }
@@ -1117,20 +1253,20 @@ mod tests {
             let mut v = arrived_visitor();
             v.is_leaving = true;
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert!(v.path.is_empty());
             assert_eq!(v.target, (0, 0, 0));
         }
 
         #[test]
-        fn test_assigns_new_target_and_path_when_arrived() {
+        fn test_falls_back_to_random_walk_when_no_building_scores_positively() {
             let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
             assert_eq!(v.path, vec![(1, 0, 0)]);
@@ -1145,9 +1281,57 @@ mod tests {
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert!(v.path.is_empty());
+        }
+
+        #[test]
+        fn test_prefers_a_cell_adjacent_to_a_relevant_building_over_plain_wandering() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // plain candidate
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path); // link to keep the path contiguous
+            park_map.set_infrastructure(3, 0, 0, InfrastructureShape::Path); // adjacent to the stand
+            park_map.set_building(
+                4,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "snack_stand".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0); // starving
+
+            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 0);
+
+            assert_eq!(v.target, (3, 0, 0));
+        }
+
+        #[test]
+        fn test_relieves_needs_and_records_the_visit_on_arrival_next_to_a_building() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_building(
+                1,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "snack_stand".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0);
+            v.comfort_thresholds.insert(crate::visitor::HUNGER.to_string(), 70.0);
+
+            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 42);
+
+            assert_eq!(v.needs[crate::visitor::HUNGER], 50.0); // 90 - 40 relief
+            assert!(v.satisfaction > 0.0, "relief should have granted a gain");
+            assert_eq!(v.last_visited.get(&(0, 0, 0)), Some(&42));
         }
     }
 
