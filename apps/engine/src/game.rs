@@ -130,7 +130,7 @@ impl GameWorld {
                 v,
                 &self.park_map,
                 &self.building_catalog,
-                &self.queues,
+                &mut self.queues,
                 old_cell,
                 self.tick_count,
             );
@@ -219,18 +219,10 @@ impl GameWorld {
     /// have already checked the visitor is at the chain's tail (queue entrance); the
     /// trigger for that lives with target resolution (TPM-156), not here.
     pub fn try_join_queue(&mut self, visitor_id: &str, attraction_building_id: &str) -> bool {
-        let diameter = visitor_diameter();
-        let queue = self.queues.entry(attraction_building_id.to_string()).or_default();
-        if queue.is_full(diameter) {
+        let Some(v) = self.visitors.iter_mut().find(|v| v.id == visitor_id) else {
             return false;
-        }
-        queue.occupants.push_back(visitor_id.to_string());
-
-        if let Some(v) = self.visitors.iter_mut().find(|v| v.id == visitor_id) {
-            v.queue_attraction = Some(attraction_building_id.to_string());
-            v.path.clear();
-        }
-        true
+        };
+        join_queue(v, &mut self.queues, attraction_building_id)
     }
 }
 
@@ -482,11 +474,21 @@ fn assign_new_target_if_arrived(
     v: &mut Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
-    queues: &HashMap<String, QueueState>,
+    queues: &mut HashMap<String, QueueState>,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) {
     if v.path.is_empty() && !v.is_leaving {
+        // Just reached a queue's entrance: hand off to FIFO advancement (TPM-45)
+        // instead of the ordinary arrival cycle — no needs relief, no A* target here.
+        if let Some(attraction_id) = queue_at_entrance(queues, old_cell) {
+            let attraction_id = attraction_id.to_string();
+            if join_queue(v, queues, &attraction_id) {
+                return;
+            }
+            // Queue filled up on the way here: renoncement, fall through and re-target.
+        }
+
         relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
 
         let new_target = best_destination(v, park_map, catalog, queues, old_cell, current_tick)
@@ -532,6 +534,30 @@ fn advance_visitor_in_queue(
     let max_step = base_speed_for(&crate::map::InfrastructureShape::Path) * dt;
     v.position = advance_toward(v.position, target, max_step);
     distance_moved(before, v.position)
+}
+
+/// Moves `v` from normal pathfinding-driven movement into `attraction_id`'s queue —
+/// false (no-op) if it's already full.
+fn join_queue(v: &mut Visitor, queues: &mut HashMap<String, QueueState>, attraction_id: &str) -> bool {
+    let diameter = visitor_diameter();
+    let queue = queues.entry(attraction_id.to_string()).or_default();
+    if queue.is_full(diameter) {
+        return false;
+    }
+    queue.occupants.push_back(v.id.clone());
+    v.queue_attraction = Some(attraction_id.to_string());
+    v.path.clear();
+    true
+}
+
+/// The attraction whose queue entrance (chain tail) is `cell`, if any — TPM-156: this
+/// is how `assign_new_target_if_arrived` recognizes "just arrived at a queue" versus
+/// an ordinary destination.
+fn queue_at_entrance(queues: &HashMap<String, QueueState>, cell: (i32, i32, i32)) -> Option<&str> {
+    queues
+        .iter()
+        .find(|(_, queue)| queue.chain.last() == Some(&cell))
+        .map(|(attraction_id, _)| attraction_id.as_str())
 }
 
 fn local_density_at(
@@ -1875,7 +1901,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_two_identical_coasters(),
-                &queues,
+                &mut queues,
                 (0, 0, 0),
                 0,
             );
@@ -2009,7 +2035,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_attraction_with_no_declared_needs_relief(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2052,7 +2078,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_thrill_and_family_rides(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2070,7 +2096,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &empty_catalog(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2088,7 +2114,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &empty_catalog(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2108,7 +2134,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &empty_catalog(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2128,7 +2154,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &empty_catalog(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2159,7 +2185,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -2189,7 +2215,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
-                &HashMap::new(),
+                &mut HashMap::new(),
                 (0, 0, 0),
                 42,
             );
@@ -2197,6 +2223,72 @@ mod tests {
             assert_eq!(v.needs[crate::visitor::HUNGER], 50.0); // 90 - 40 relief
             assert!(v.satisfaction > 0.0, "relief should have granted a gain");
             assert_eq!(v.last_visited.get(&(0, 0, 0)), Some(&42));
+        }
+
+        #[test]
+        fn test_joins_the_queue_instead_of_the_ordinary_arrival_cycle_when_arriving_at_its_entrance() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "coaster".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0), (2, 0, 0)], // (2,0,0) is the entrance
+                    occupants: Default::default(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.position = (2.0, 0.0, 0.0);
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0); // would normally relieve needs here
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &mut queues,
+                (2, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.queue_attraction, Some("coaster".to_string()));
+            assert_eq!(queues["coaster"].occupants, vec!["a".to_string()]);
+            assert!(v.path.is_empty());
+            // No ordinary arrival side effect: needs relief never ran for this arrival.
+            assert_eq!(v.needs[crate::visitor::HUNGER], 90.0);
+        }
+
+        #[test]
+        fn test_renounces_and_picks_a_new_target_when_the_queue_filled_up_before_arrival() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path); // old_cell itself
+            park_map.set_infrastructure(3, 0, 0, InfrastructureShape::Path); // alternate wander target
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "coaster".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0), (2, 0, 0)],
+                    occupants: Default::default(),
+                },
+            );
+            // Fill to exact capacity rather than guessing a number, so the test doesn't
+            // silently start passing/failing for the wrong reason if capacity math changes.
+            let capacity = crate::queue::queue_capacity(&queues["coaster"].chain, 2.0 * VISITOR_RADIUS);
+            queues.get_mut("coaster").unwrap().occupants =
+                (0..capacity).map(|i| format!("filler{i}")).collect();
+            let mut v = arrived_visitor();
+            v.position = (2.0, 0.0, 0.0);
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &mut queues,
+                (2, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.queue_attraction, None, "must not have joined a full queue");
+            assert_eq!(queues["coaster"].occupants.len(), capacity, "occupant count unchanged");
+            assert!(!v.path.is_empty(), "should have picked a new target instead");
         }
     }
 
