@@ -164,6 +164,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     let initialized = false;
     let unsubscribeWorldState: (() => void) | null = null;
     let removePointerLeaveListener: (() => void) | null = null;
+    let removePointerUpListener: (() => void) | null = null;
     const app = new Application();
 
     onMap().then(async (mapResponse) => {
@@ -184,6 +185,18 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
       const ghost = new Graphics();
       const hoveredCellRef: { current: { x: number; y: number } | null } = {
         current: null,
+      };
+      // Drag-tracing state, shared by PlaceInfrastructure and Remove (only
+      // one tool is ever active at a time): a pointerdown on a cell starts a
+      // "stroke", pointerover on subsequent cells while the pointer is still
+      // down extends it, and a global pointerup ends it. Visited cells are
+      // tracked per-stroke so re-entering a cell never sends a duplicate
+      // command (or, for a building, asks for confirmation more than once).
+      const isDraggingRef: { current: boolean } = {
+        current: false,
+      };
+      const draggedCellsRef: { current: Set<string> } = {
+        current: new Set(),
       };
 
       // A footprint is placeable if every cell it covers is within the grid
@@ -234,6 +247,110 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
       }
       updateGhostRef.current = updateGhost;
 
+      // Drives both a plain click (a 1-cell stroke) and drag-tracing
+      // (pointerdown + pointerover while dragging) for PlaceInfrastructure —
+      // see the drag-tracing refs above. Kept out of handleCellClick's
+      // pointertap dispatch so a click never double-places on release.
+      async function placeInfrastructureAtCell(x: number, y: number) {
+        const key = `${x},${y}`;
+        if (draggedCellsRef.current.has(key)) {
+          return;
+        }
+        draggedCellsRef.current.add(key);
+
+        if (infrastructure[y][x] !== null) {
+          return;
+        }
+
+        const response = await placeInfrastructureAt(sendCommand, PARK_ID, x, y);
+        if (!response.success) {
+          console.error("Failed to place infrastructure: ", response.message);
+          return;
+        }
+
+        infrastructure[y][x] = "path";
+        const cell = cellGraphics[y][x];
+        cell.clear();
+        cell
+          .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
+          .fill(getCellColor(x, y, terrain, infrastructure))
+          .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+        cell.cursor = "default";
+      }
+
+      // Drives both a plain click and drag-tracing for Remove. A building
+      // requires confirmation (once per building, even if the drag passes
+      // through several of its cells); an infrastructure segment does not.
+      async function removeAtCell(x: number, y: number) {
+        const key = `${x},${y}`;
+        if (draggedCellsRef.current.has(key)) {
+          return;
+        }
+
+        const buildingKey = buildingGrid[y][x];
+        if (buildingKey) {
+          const building = buildings.get(buildingKey)!;
+          // Mark every footprint cell visited up front so dragging across
+          // the same building never asks for confirmation twice in one stroke.
+          for (const offset of building.footprint) {
+            draggedCellsRef.current.add(
+              `${building.origin.x + offset.x},${building.origin.y + offset.y}`,
+            );
+          }
+
+          if (!window.confirm("Démolir ce bâtiment ?")) {
+            return;
+          }
+          const response = await removeBuildingAt(
+            sendCommand,
+            PARK_ID,
+            building.origin.x,
+            building.origin.y,
+          );
+          if (!response.success) {
+            toast.error("Failed to remove the building", {
+              description: response.message,
+            });
+            return;
+          }
+
+          buildings.delete(buildingKey);
+          for (const offset of building.footprint) {
+            const cx = building.origin.x + offset.x;
+            const cy = building.origin.y + offset.y;
+            buildingGrid[cy][cx] = null;
+            const clearedCell = cellGraphics[cy][cx];
+            clearedCell.clear();
+            clearedCell
+              .rect(toScreenX(cx), toScreenY(cy, height), CELL_SIZE, CELL_SIZE)
+              .fill(getCellColor(cx, cy, terrain, infrastructure))
+              .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+          }
+          return;
+        }
+
+        draggedCellsRef.current.add(key);
+        if (!infrastructure[y][x]) {
+          return;
+        }
+
+        const response = await removeInfrastructureAt(sendCommand, PARK_ID, x, y);
+        if (!response.success) {
+          toast.error("Failed to remove the infrastructure", {
+            description: response.message,
+          });
+          return;
+        }
+
+        infrastructure[y][x] = null;
+        const cell = cellGraphics[y][x];
+        cell.clear();
+        cell
+          .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
+          .fill(getCellColor(x, y, terrain, infrastructure))
+          .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+      }
+
       async function handleCellClick(x: number, y: number) {
         let response;
         const cell = cellGraphics[y][x];
@@ -263,24 +380,9 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
               .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
             cell.cursor = "default";
             break;
-          case "infrastructure":
-            response = await placeInfrastructureAt(sendCommand, PARK_ID, x, y);
-            if (!response.success) {
-              console.error(
-                "Failed to place infrastructure: ",
-                response.message,
-              );
-              break;
-            }
-
-            infrastructure[y][x] = "path";
-            cell.clear();
-            cell
-              .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
-              .fill(getCellColor(x, y, terrain, infrastructure))
-              .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-            cell.cursor = "default";
-            break;
+          // "infrastructure" is handled by placeInfrastructureAtCell,
+          // driven from pointerdown/pointerover for drag-tracing — not from
+          // this click dispatcher.
           case "building": {
             const rotation = toolRef.current.rotation ?? Rotation.ROTATION_DEG_0;
             const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
@@ -331,62 +433,9 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             updateGhost();
             break;
           }
-          case "remove": {
-            const buildingKey = buildingGrid[y][x];
-            if (buildingKey) {
-              const building = buildings.get(buildingKey)!;
-              if (!window.confirm("Démolir ce bâtiment ?")) {
-                break;
-              }
-              response = await removeBuildingAt(
-                sendCommand,
-                PARK_ID,
-                building.origin.x,
-                building.origin.y,
-              );
-              if (!response.success) {
-                toast.error("Failed to remove the building", {
-                  description: response.message,
-                });
-                break;
-              }
-
-              buildings.delete(buildingKey);
-              for (const offset of building.footprint) {
-                const cx = building.origin.x + offset.x;
-                const cy = building.origin.y + offset.y;
-                buildingGrid[cy][cx] = null;
-                const clearedCell = cellGraphics[cy][cx];
-                clearedCell.clear();
-                clearedCell
-                  .rect(toScreenX(cx), toScreenY(cy, height), CELL_SIZE, CELL_SIZE)
-                  .fill(getCellColor(cx, cy, terrain, infrastructure))
-                  .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-                clearedCell.eventMode = "static";
-                clearedCell.cursor = "pointer";
-                clearedCell.on("pointertap", () => handleCellClick(cx, cy));
-              }
-            } else if (infrastructure[y][x]) {
-              response = await removeInfrastructureAt(sendCommand, PARK_ID, x, y);
-              if (!response.success) {
-                toast.error("Failed to remove the infrastructure", {
-                  description: response.message,
-                });
-                break;
-              }
-
-              infrastructure[y][x] = null;
-              cell.clear();
-              cell
-                .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
-                .fill(getCellColor(x, y, terrain, infrastructure))
-                .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-              cell.eventMode = "static";
-              cell.cursor = "pointer";
-              cell.on("pointertap", () => handleCellClick(x, y));
-            }
-            break;
-          }
+          // "remove" is handled by removeAtCell, driven from
+          // pointerdown/pointerover for drag-tracing — not from this click
+          // dispatcher.
           default:
             break;
         }
@@ -420,6 +469,27 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           cell.on("pointerover", () => {
             hoveredCellRef.current = { x, y };
             updateGhost();
+            if (!isDraggingRef.current) {
+              return;
+            }
+            if (toolRef.current.mode === "infrastructure") {
+              void placeInfrastructureAtCell(x, y);
+            } else if (toolRef.current.mode === "remove") {
+              void removeAtCell(x, y);
+            }
+          });
+          cell.on("pointerdown", () => {
+            const mode = toolRef.current.mode;
+            if (mode !== "infrastructure" && mode !== "remove") {
+              return;
+            }
+            isDraggingRef.current = true;
+            draggedCellsRef.current = new Set();
+            if (mode === "infrastructure") {
+              void placeInfrastructureAtCell(x, y);
+            } else {
+              void removeAtCell(x, y);
+            }
           });
 
           cellGraphics[y][x] = cell;
@@ -456,6 +526,16 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
       removePointerLeaveListener = () =>
         containerEl?.removeEventListener("pointerleave", handlePointerLeave);
 
+      // The pointer can be released outside any cell (or outside the canvas
+      // entirely) once a drag has started, so this listens globally rather
+      // than on individual cells.
+      function handlePointerUp() {
+        isDraggingRef.current = false;
+      }
+      window.addEventListener("pointerup", handlePointerUp);
+      removePointerUpListener = () =>
+        window.removeEventListener("pointerup", handlePointerUp);
+
       unsubscribeWorldState = onWorldState((state) => {
         syncVisitorGraphics(app.stage, visitorGraphics, state.visitors, height);
       });
@@ -465,6 +545,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
       cancelled = true;
       unsubscribeWorldState?.();
       removePointerLeaveListener?.();
+      removePointerUpListener?.();
       if (initialized) {
         app.destroy(true, { children: true });
       }

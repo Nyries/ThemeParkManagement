@@ -135,15 +135,88 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
+    // Infrastructure placement is driven by pointerdown (drag-tracing), not
+    // pointertap: index 0 is pointertap, 1 is pointerover, 2 is pointerdown.
     const cell = mockStageAddChild.mock.calls[0][0];
-    const handleCellClick = cell.on.mock.calls[0][1];
+    const handlePointerDown = cell.on.mock.calls[2][1];
 
-    await handleCellClick();
+    await handlePointerDown();
 
     expect(mockSendCommand).toHaveBeenCalledWith(
       expect.objectContaining({ parkId: "default" }),
     );
     expect(cell.clear).toHaveBeenCalled();
+  });
+
+  it("traces a drag across multiple cells, placing infrastructure on each new one entered", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 0 }); // 2x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "infrastructure" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const [firstCell] = mockStageAddChild.mock.calls[0];
+    const [secondCell] = mockStageAddChild.mock.calls[1];
+    const handlePointerDown = firstCell.on.mock.calls[2][1];
+    const handleSecondPointerOver = secondCell.on.mock.calls[1][1];
+
+    await handlePointerDown(); // start the stroke on the first cell
+    await handleSecondPointerOver(); // drag onto the second cell
+
+    expect(mockSendCommand).toHaveBeenCalledTimes(2);
+    expect(firstCell.clear).toHaveBeenCalled();
+    expect(secondCell.clear).toHaveBeenCalled();
+  });
+
+  it("does not re-place infrastructure when re-entering an already-dragged cell", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "infrastructure" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const cell = mockStageAddChild.mock.calls[0][0];
+    const handlePointerDown = cell.on.mock.calls[2][1];
+    const handlePointerOver = cell.on.mock.calls[1][1];
+
+    await handlePointerDown();
+    await handlePointerOver(); // re-entering the same cell mid-stroke
+
+    expect(mockSendCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops extending the stroke once the pointer is released", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 0 }); // 2x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "infrastructure" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const [firstCell] = mockStageAddChild.mock.calls[0];
+    const [secondCell] = mockStageAddChild.mock.calls[1];
+    const handlePointerDown = firstCell.on.mock.calls[2][1];
+    const handleSecondPointerOver = secondCell.on.mock.calls[1][1];
+
+    await handlePointerDown();
+    window.dispatchEvent(new Event("pointerup"));
+    await handleSecondPointerOver(); // hovering after release should not place
+
+    expect(mockSendCommand).toHaveBeenCalledTimes(1);
   });
 
   it("applies terrain to a cell when the terrain tool is active", async () => {
@@ -222,9 +295,10 @@ describe("Park", () => {
 
     // Cells are added in (y, x) order: index 1 is (1,0), part of the
     // building's L-shaped footprint placed at origin (0,0) below.
+    // Infrastructure placement is driven by pointerdown (index 2).
     const pathCell = mockStageAddChild.mock.calls[1][0];
-    const handlePathCellClick = pathCell.on.mock.calls[0][1];
-    await handlePathCellClick(); // lay a path on a footprint cell
+    const handlePathCellPointerDown = pathCell.on.mock.calls[2][1];
+    await handlePathCellPointerDown(); // lay a path on a footprint cell
 
     rerender(<Park tool={{ mode: "building" }} onToolChange={vi.fn()} />);
     mockSendCommand.mockClear();
@@ -268,7 +342,9 @@ describe("Park", () => {
     rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
     mockSendCommand.mockClear();
 
-    await handleCellClick(); // click the same (now built-on) cell again
+    // Removal is driven by pointerdown (drag-tracing), not pointertap.
+    const handlePointerDown = originCell.on.mock.calls[2][1];
+    await handlePointerDown(); // click the same (now built-on) cell again
 
     expect(confirmSpy).toHaveBeenCalled();
     expect(mockSendCommand).toHaveBeenCalledWith(
@@ -302,10 +378,47 @@ describe("Park", () => {
     rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
     mockSendCommand.mockClear();
 
-    await handleCellClick();
+    // Removal is driven by pointerdown (drag-tracing), not pointertap.
+    const handlePointerDown = originCell.on.mock.calls[2][1];
+    await handlePointerDown();
 
     expect(confirmSpy).toHaveBeenCalled();
     expect(mockSendCommand).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("asks for confirmation only once when dragging the remove tool across the same building", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 1 }); // 2x2 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { rerender } = render(
+      <Park tool={{ mode: "building" }} onToolChange={vi.fn()} />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Origin (0,0) and (1,0) both belong to the L-shaped footprint.
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const secondCell = mockStageAddChild.mock.calls[1][0];
+    const handleCellClick = originCell.on.mock.calls[0][1];
+    await handleCellClick(); // place the building first
+
+    rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
+    mockSendCommand.mockClear();
+
+    const handlePointerDown = originCell.on.mock.calls[2][1];
+    const handleSecondPointerOver = secondCell.on.mock.calls[1][1];
+    await handlePointerDown(); // start the drag on the building's origin
+    await handleSecondPointerOver(); // drag onto another cell of the same building
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockSendCommand).toHaveBeenCalledTimes(1);
 
     confirmSpy.mockRestore();
   });
@@ -326,13 +439,14 @@ describe("Park", () => {
     await flushMicrotasks();
 
     const cell = mockStageAddChild.mock.calls[0][0];
-    const handleCellClick = cell.on.mock.calls[0][1];
-    await handleCellClick(); // place a path first
+    const handlePointerDown = cell.on.mock.calls[2][1];
+    await handlePointerDown(); // place a path first
 
     rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
     mockSendCommand.mockClear();
 
-    await handleCellClick(); // click the same (now built-on) cell again
+    // Removal is driven by pointerdown (drag-tracing), not pointertap.
+    await handlePointerDown(); // click the same (now built-on) cell again
 
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(mockSendCommand).toHaveBeenCalledWith(
