@@ -1,10 +1,11 @@
 import { Rotation } from "@app/shared-types";
+import type { TerrainMaterial } from "../rendering/grid";
 
 export type ToolMode = "terrain" | "infrastructure" | "building" | "remove" | null;
 export interface ToolState {
     mode: ToolMode;
     rotation?: Rotation;
-    selectedMaterialId?: string;
+    selectedMaterialId?: TerrainMaterial;
     selectedBuildingId?: string;
 }
 

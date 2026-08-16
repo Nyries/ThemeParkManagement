@@ -10,6 +10,7 @@ import {
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
 import { mapFromResponse } from "../park/mapFromResponse";
+import { DEFAULT_MATERIAL_ID, isMaterialBuildable } from "../park/materials";
 import { syncVisitorGraphics } from "../park/syncVisitors";
 import type { SelectionInfo } from "../park/selection";
 import {
@@ -31,7 +32,6 @@ import { toast } from "sonner";
 import { Rotation } from "@app/shared-types";
 
 const PARK_ID = "default";
-const MATERIAL_ID = "grass";
 const TEMPLATE_ID = "sit_down_restaurant";
 // Stub footprint until the real catalogue (TPM-163) is wired in — matches
 // "sit_down_restaurant" in apps/engine/assets/catalog/buildings.json.
@@ -205,12 +205,13 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
       const hoveredCellRef: { current: { x: number; y: number } | null } = {
         current: null,
       };
-      // Drag-tracing state, shared by PlaceInfrastructure and Remove (only
-      // one tool is ever active at a time): a pointerdown on a cell starts a
-      // "stroke", pointerover on subsequent cells while the pointer is still
-      // down extends it, and a global pointerup ends it. Visited cells are
-      // tracked per-stroke so re-entering a cell never sends a duplicate
-      // command (or, for a building, asks for confirmation more than once).
+      // Drag-tracing state, shared by ApplyTerrain, PlaceInfrastructure and
+      // Remove (only one tool is ever active at a time): a pointerdown on a
+      // cell starts a "stroke", pointerover on subsequent cells while the
+      // pointer is still down extends it, and a global pointerup ends it.
+      // Visited cells are tracked per-stroke so re-entering a cell never
+      // sends a duplicate command (or, for a building, asks for
+      // confirmation more than once).
       const isDraggingRef: { current: boolean } = {
         current: false,
       };
@@ -218,9 +219,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         current: new Set(),
       };
 
-      // A footprint is placeable if every cell it covers is within the grid
-      // and free of both an existing building and infrastructure (a
-      // building cannot be dropped on top of a path).
+      // A footprint is placeable if every cell it covers is within the grid,
+      // free of both an existing building and infrastructure (a building
+      // cannot be dropped on top of a path), and stands on buildable
+      // terrain (e.g. not water).
       function isFootprintValid(
         originX: number,
         originY: number,
@@ -235,7 +237,8 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             cy >= 0 &&
             cy < height &&
             !buildingGrid[cy][cx] &&
-            !infrastructure[cy][cx]
+            !infrastructure[cy][cx] &&
+            isMaterialBuildable(terrain[cy][cx])
           );
         });
       }
@@ -265,6 +268,44 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         }
       }
       updateGhostRef.current = updateGhost;
+
+      // Drives both a plain click (a 1-cell stroke) and drag-tracing
+      // (pointerdown + pointerover while dragging) for ApplyTerrain — see
+      // the drag-tracing refs above. Kept out of handleCellClick's
+      // pointertap dispatch so a click never double-applies on release.
+      async function applyTerrainAtCell(x: number, y: number) {
+        const key = `${x},${y}`;
+        if (draggedCellsRef.current.has(key)) {
+          return;
+        }
+        draggedCellsRef.current.add(key);
+
+        const materialId =
+          toolRef.current.selectedMaterialId ?? DEFAULT_MATERIAL_ID;
+
+        const response = await applyTerrainAt(
+          sendCommand,
+          PARK_ID,
+          materialId,
+          x,
+          y,
+        );
+        if (!response.success) {
+          toast.error("Failed to apply the terrain", {
+            description: response.message,
+          });
+          console.error("Failed to apply the terrain: ", response.message);
+          return;
+        }
+
+        terrain[y][x] = materialId;
+        const cell = cellGraphics[y][x];
+        cell.clear();
+        cell
+          .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
+          .fill(getCellColor(x, y, terrain, infrastructure))
+          .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
+      }
 
       // Drives both a plain click (a 1-cell stroke) and drag-tracing
       // (pointerdown + pointerover while dragging) for PlaceInfrastructure —
@@ -369,37 +410,30 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
       }
 
-      async function handleCellClick(x: number, y: number) {
-        let response;
-        const cell = cellGraphics[y][x];
-
+      // Picks which drag-tracing action (if any) applies to the currently
+      // active tool, shared by the pointerdown (stroke start) and
+      // pointerover (stroke continuation) handlers below.
+      function dragActionAt(x: number, y: number): (() => Promise<void>) | null {
         switch (toolRef.current.mode) {
           case "terrain":
-            response = await applyTerrainAt(
-              sendCommand,
-              PARK_ID,
-              MATERIAL_ID,
-              x,
-              y,
-            );
-            if (!response.success) {
-              toast.error("Failed to apply the terrain", {
-                description: response.message,
-              });
-              console.error("Failed to apply the terrain: ", response.message);
-              break;
-            }
+            return () => applyTerrainAtCell(x, y);
+          case "infrastructure":
+            return () => placeInfrastructureAtCell(x, y);
+          case "remove":
+            return () => removeAtCell(x, y);
+          default:
+            return null;
+        }
+      }
 
-            terrain[y][x] = MATERIAL_ID;
-            cell.clear();
-            cell
-              .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
-              .fill(getCellColor(x, y, terrain, infrastructure))
-              .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-            break;
-          // "infrastructure" is handled by placeInfrastructureAtCell,
-          // driven from pointerdown/pointerover for drag-tracing — not from
-          // this click dispatcher.
+      async function handleCellClick(x: number, y: number) {
+        let response;
+
+        switch (toolRef.current.mode) {
+          // "terrain" is handled by applyTerrainAtCell and "infrastructure"
+          // by placeInfrastructureAtCell, both driven from
+          // pointerdown/pointerover for drag-tracing — not from this click
+          // dispatcher.
           case "building": {
             const rotation = toolRef.current.rotation ?? Rotation.ROTATION_DEG_0;
             const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
@@ -407,7 +441,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             if (!isFootprintValid(x, y, footprint)) {
               toast.error("Failed to place the building", {
                 description:
-                  "Emplacement invalide : chevauche un bâtiment ou une infrastructure existante.",
+                  "Emplacement invalide : chevauche un bâtiment, une infrastructure existante, ou le terrain ne permet pas de construire ici.",
               });
               break;
             }
@@ -487,27 +521,18 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           cell.on("pointerover", () => {
             hoveredCellRef.current = { x, y };
             updateGhost();
-            if (!isDraggingRef.current) {
-              return;
-            }
-            if (toolRef.current.mode === "infrastructure") {
-              void placeInfrastructureAtCell(x, y);
-            } else if (toolRef.current.mode === "remove") {
-              void removeAtCell(x, y);
+            if (isDraggingRef.current) {
+              void dragActionAt(x, y)?.();
             }
           });
           cell.on("pointerdown", () => {
-            const mode = toolRef.current.mode;
-            if (mode !== "infrastructure" && mode !== "remove") {
+            const action = dragActionAt(x, y);
+            if (!action) {
               return;
             }
             isDraggingRef.current = true;
             draggedCellsRef.current = new Set();
-            if (mode === "infrastructure") {
-              void placeInfrastructureAtCell(x, y);
-            } else {
-              void removeAtCell(x, y);
-            }
+            void action();
           });
 
           cellGraphics[y][x] = cell;

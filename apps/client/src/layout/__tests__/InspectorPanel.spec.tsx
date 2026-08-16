@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { InspectorPanel } from "../InspectorPanel";
 import type { ToolState } from "@/park/tool";
 
@@ -35,7 +36,7 @@ describe("InspectorPanel", () => {
     expect(screen.getByText("Journal")).toBeInTheDocument();
   });
 
-  it("shows the terrain placeholder when the terrain tool is active", () => {
+  it("shows the material selector when the terrain tool is active, defaulting to grass", () => {
     render(
       <InspectorPanel
         selection={null}
@@ -43,7 +44,52 @@ describe("InspectorPanel", () => {
         onToolChange={vi.fn()}
       />,
     );
-    expect(screen.getByText("Sélection de matériau — à venir")).toBeInTheDocument();
+    expect(screen.getByText("Matériau")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Herbe" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Eau" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("reflects the selected material as pressed", () => {
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "terrain", selectedMaterialId: "water" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Eau" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Herbe" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("selects a material when clicking it", async () => {
+    const onToolChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "terrain" }}
+        onToolChange={onToolChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Eau" }));
+
+    expect(onToolChange).toHaveBeenCalledWith({
+      mode: "terrain",
+      selectedMaterialId: "water",
+    });
   });
 
   it("shows the catalog placeholder when the building tool is active", () => {

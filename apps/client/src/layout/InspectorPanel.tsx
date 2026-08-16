@@ -1,4 +1,6 @@
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import { DEFAULT_MATERIAL_ID, materialColor, TERRAIN_MATERIALS } from "@/park/materials";
 import type { SelectionInfo } from "@/park/selection";
 import type { ToolState } from "@/park/tool";
 
@@ -8,10 +10,10 @@ interface InspectorPanelProps {
   onToolChange: (tool: ToolState) => void;
 }
 
-export function InspectorPanel({ selection, tool }: InspectorPanelProps) {
+export function InspectorPanel({ selection, tool, onToolChange }: InspectorPanelProps) {
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border p-4">
-      <ToolContextContent selection={selection} tool={tool} />
+      <ToolContextContent selection={selection} tool={tool} onToolChange={onToolChange} />
 
       <Separator className="my-4" />
 
@@ -30,13 +32,46 @@ export function InspectorPanel({ selection, tool }: InspectorPanelProps) {
 function ToolContextContent({
   selection,
   tool,
-}: Pick<InspectorPanelProps, "selection" | "tool">) {
+  onToolChange,
+}: InspectorPanelProps) {
   switch (tool.mode) {
     case "terrain":
       return (
-        <h2 className="text-sm font-semibold text-foreground">
-          Sélection de matériau — à venir
-        </h2>
+        <div>
+          <h2 className="mb-2 text-sm font-semibold text-foreground">
+            Matériau
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {TERRAIN_MATERIALS.map((material) => {
+              const active =
+                (tool.selectedMaterialId ?? DEFAULT_MATERIAL_ID) ===
+                material.id;
+              return (
+                <button
+                  key={material.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() =>
+                    onToolChange({ ...tool, selectedMaterialId: material.id })
+                  }
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-3 rounded-full border border-black/10"
+                    style={{ backgroundColor: materialColor(material.id) }}
+                  />
+                  {material.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       );
     case "building":
       return (

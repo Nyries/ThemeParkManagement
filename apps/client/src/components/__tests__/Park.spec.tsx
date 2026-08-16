@@ -263,18 +263,54 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
+    // Terrain application is driven by pointerdown (drag-tracing), not
+    // pointertap: index 0 is pointertap, 1 is pointerover, 2 is pointerdown.
     const cell = mockStageAddChild.mock.calls[0][0];
-    const handleCellClick = cell.on.mock.calls[0][1];
+    const handlePointerDown = cell.on.mock.calls[2][1];
 
-    await handleCellClick();
+    await handlePointerDown();
 
     expect(mockSendCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         parkId: "default",
-        command: expect.objectContaining({ $case: "applyTerrain" }),
+        command: expect.objectContaining({
+          $case: "applyTerrain",
+          applyTerrain: expect.objectContaining({ materialId: "grass" }),
+        }),
       }),
     );
     expect(cell.clear).toHaveBeenCalled();
+  });
+
+  it("applies the selected material instead of the default when one is chosen", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(
+      <Park
+        tool={{ mode: "terrain", selectedMaterialId: "water" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const cell = mockStageAddChild.mock.calls[0][0];
+    const handlePointerDown = cell.on.mock.calls[2][1];
+    await handlePointerDown();
+
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          $case: "applyTerrain",
+          applyTerrain: expect.objectContaining({ materialId: "water" }),
+        }),
+      }),
+    );
   });
 
   it("places a building covering its whole footprint when the building tool is active", async () => {
@@ -350,6 +386,74 @@ describe("Park", () => {
         command: expect.objectContaining({ $case: "placeBuilding" }),
       }),
     );
+  });
+
+  it("refuses to place a building whose footprint stands on non-buildable terrain (water)", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 1 }); // 2x2 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    const { rerender } = render(
+      <Park
+        tool={{ mode: "terrain", selectedMaterialId: "water" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // (1,0) is part of the building's L-shaped footprint placed at origin
+    // (0,0) below. Terrain application is driven by pointerdown (index 2).
+    const waterCell = mockStageAddChild.mock.calls[1][0];
+    const handleWaterCellPointerDown = waterCell.on.mock.calls[2][1];
+    await handleWaterCellPointerDown(); // turn a footprint cell into water
+
+    rerender(<Park tool={{ mode: "building" }} onToolChange={vi.fn()} />);
+    mockSendCommand.mockClear();
+
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const handleOriginCellClick = originCell.on.mock.calls[0][1];
+    await handleOriginCellClick();
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Failed to place the building",
+      expect.objectContaining({
+        description: expect.stringContaining("terrain"),
+      }),
+    );
+    expect(mockSendCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ $case: "placeBuilding" }),
+      }),
+    );
+  });
+
+  it("traces a drag across multiple cells, applying terrain on each new one entered", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 0 }); // 2x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "terrain" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const [firstCell] = mockStageAddChild.mock.calls[0];
+    const [secondCell] = mockStageAddChild.mock.calls[1];
+    const handlePointerDown = firstCell.on.mock.calls[2][1];
+    const handleSecondPointerOver = secondCell.on.mock.calls[1][1];
+
+    await handlePointerDown(); // start the stroke on the first cell
+    await handleSecondPointerOver(); // drag onto the second cell
+
+    expect(mockSendCommand).toHaveBeenCalledTimes(2);
+    expect(firstCell.clear).toHaveBeenCalled();
+    expect(secondCell.clear).toHaveBeenCalled();
   });
 
   it("asks for confirmation and removes a building when the remove tool is used on it", async () => {
