@@ -1,4 +1,7 @@
-use crate::balance::{AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, LATERAL_REPULSION_FACTOR, STEERING_FACTOR, VISIT_DURATION_TICKS};
+use crate::balance::{
+    AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, LATERAL_REPULSION_FACTOR, STEERING_FACTOR,
+    VISIT_DURATION_TICKS,
+};
 
 pub type VisitorId = String;
 
@@ -24,7 +27,11 @@ fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
     if d == 0.0 {
         return (0.0, 0.0, 0.0);
     }
-    ((to.0 - from.0) / d, (to.1 - from.1) / d, (to.2 - from.2) / d)
+    (
+        (to.0 - from.0) / d,
+        (to.1 - from.1) / d,
+        (to.2 - from.2) / d,
+    )
 }
 
 fn normalize(v: (f32, f32, f32)) -> (f32, f32, f32) {
@@ -35,11 +42,14 @@ fn normalize(v: (f32, f32, f32)) -> (f32, f32, f32) {
     (v.0 / len, v.1 / len, v.2 / len)
 }
 
-fn dot(a: (f32, f32, f32), b: (f32, f32, f32))-> f32 {
+fn dot(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
     a.0 * b.0 + a.1 * b.1 + a.2 * b.2
 }
 
-fn atternuate_lateral_repulsion(repulsion: (f32, f32, f32), forward: (f32, f32, f32)) -> (f32, f32, f32) {
+fn atternuate_lateral_repulsion(
+    repulsion: (f32, f32, f32),
+    forward: (f32, f32, f32),
+) -> (f32, f32, f32) {
     if forward == (0.0, 0.0, 0.0) {
         return repulsion;
     }
@@ -57,7 +67,11 @@ fn atternuate_lateral_repulsion(repulsion: (f32, f32, f32), forward: (f32, f32, 
     )
 }
 
-fn lerp_direction(current: (f32, f32, f32), desired: (f32, f32, f32), factor: f32) -> (f32, f32, f32) {
+fn lerp_direction(
+    current: (f32, f32, f32),
+    desired: (f32, f32, f32),
+    factor: f32,
+) -> (f32, f32, f32) {
     let blended = (
         current.0 + (desired.0 - current.0) * factor,
         current.1 + (desired.1 - current.1) * factor,
@@ -71,7 +85,10 @@ pub fn speed_at(base_speed: f32, density: usize) -> f32 {
     base_speed * f
 }
 
-pub fn repulsion_force(my_position: (f32, f32, f32), neighbor_position: (f32, f32, f32)) -> (f32, f32, f32) {
+pub fn repulsion_force(
+    my_position: (f32, f32, f32),
+    neighbor_position: (f32, f32, f32),
+) -> (f32, f32, f32) {
     let d = distance(my_position, neighbor_position);
     if d >= AVOIDING_RADIUS {
         return (0.0, 0.0, 0.0);
@@ -81,12 +98,11 @@ pub fn repulsion_force(my_position: (f32, f32, f32), neighbor_position: (f32, f3
     (intensity * dx, intensity * dy, intensity * dz)
 }
 
-
 impl Visitor {
     pub fn has_expired(&self) -> bool {
         self.ticks_since_spawn >= VISIT_DURATION_TICKS
     }
-    
+
     pub fn advance(&mut self, speed: f32, dt: f32, repulsion: (f32, f32, f32)) {
         let Some(&next) = self.path.first() else {
             return;
@@ -110,7 +126,7 @@ impl Visitor {
         };
 
         let step = speed * dt;
-    
+
         if step >= dist_to_next {
             self.path.remove(0);
             self.position = next_f;
@@ -121,7 +137,6 @@ impl Visitor {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -172,9 +187,24 @@ mod tests {
 
     fn assert_close(actual: (f32, f32, f32), expected: (f32, f32, f32)) {
         const EPSILON: f32 = 1e-5;
-        assert!((actual.0 - expected.0).abs() < EPSILON, "x: {} != {}", actual.0, expected.0);
-        assert!((actual.1 - expected.1).abs() < EPSILON, "y: {} != {}", actual.1, expected.1);
-        assert!((actual.2 - expected.2).abs() < EPSILON, "z: {} != {}", actual.2, expected.2);
+        assert!(
+            (actual.0 - expected.0).abs() < EPSILON,
+            "x: {} != {}",
+            actual.0,
+            expected.0
+        );
+        assert!(
+            (actual.1 - expected.1).abs() < EPSILON,
+            "y: {} != {}",
+            actual.1,
+            expected.1
+        );
+        assert!(
+            (actual.2 - expected.2).abs() < EPSILON,
+            "z: {} != {}",
+            actual.2,
+            expected.2
+        );
     }
 
     #[test]
@@ -215,10 +245,10 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             assert!(!visitor.has_expired());
         }
-    
+
         #[test]
         fn test_has_expired_is_true_exactly_at_visit_duration() {
             let visitor = Visitor {
@@ -230,10 +260,10 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             assert!(visitor.has_expired());
         }
-    
+
         #[test]
         fn test_has_expired_is_true_after_visit_duration() {
             let visitor = Visitor {
@@ -245,7 +275,7 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             assert!(visitor.has_expired());
         }
     }
@@ -264,13 +294,13 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
-    
+
             assert_close(visitor.position, (1.0, 2.0, 3.0));
             assert!(visitor.path.is_empty());
         }
-    
+
         #[test]
         fn test_advance_moves_partway_when_step_is_smaller_than_distance() {
             let mut visitor = Visitor {
@@ -282,13 +312,13 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
-    
+
             assert_close(visitor.position, (0.3, 0.0, 0.0));
-            assert_eq!(visitor.path, vec![(1, 0, 0)]); 
+            assert_eq!(visitor.path, vec![(1, 0, 0)]);
         }
-    
+
         #[test]
         fn test_advance_snaps_to_next_point_and_pops_path_when_step_reaches_it_exactly() {
             let mut visitor = Visitor {
@@ -300,13 +330,13 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
-    
+
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
         }
-    
+
         #[test]
         fn test_advance_does_not_overshoot_into_remaining_budget_when_step_exceeds_distance() {
             let mut visitor = Visitor {
@@ -318,13 +348,13 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
-    
+
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
         }
-    
+
         #[test]
         fn test_advance_only_pops_the_reached_point_when_path_has_several() {
             let mut visitor = Visitor {
@@ -336,9 +366,9 @@ mod tests {
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             };
-    
+
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
-    
+
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(2, 0, 0)]);
         }
@@ -375,7 +405,8 @@ mod tests {
 
             let expected = {
                 let blended = (1.0 - STEERING_FACTOR, STEERING_FACTOR, 0.0);
-                let len = (blended.0 * blended.0 + blended.1 * blended.1 + blended.2 * blended.2).sqrt();
+                let len =
+                    (blended.0 * blended.0 + blended.1 * blended.1 + blended.2 * blended.2).sqrt();
                 (blended.0 / len, blended.1 / len, blended.2 / len)
             };
             assert_close(visitor.heading, expected);
@@ -397,15 +428,20 @@ mod tests {
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
 
-            let len = (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2)).sqrt();
-            assert!((len - 1.0).abs() < 1e-5, "heading should remain unitary, length = {len}");
+            let len =
+                (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2))
+                    .sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-5,
+                "heading should remain unitary, length = {len}"
+            );
         }
         #[test]
         fn test_advance_repulsion_deflects_movement_away_from_desired_direction() {
             let mut visitor = Visitor {
                 id: "v1".into(),
                 position: (0.0, 0.0, 0.0),
-                path: vec![(10, 0, 0)], 
+                path: vec![(10, 0, 0)],
                 target: (10, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
@@ -415,7 +451,10 @@ mod tests {
             visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
 
             assert!(visitor.position.1 > 0.0, "repulsion should push lateraly");
-            assert!(visitor.position.0 < 0.5, "x should be reduced by the deviation");
+            assert!(
+                visitor.position.0 < 0.5,
+                "x should be reduced by the deviation"
+            );
         }
 
         #[test]
@@ -432,14 +471,15 @@ mod tests {
 
             let speed = 1.0;
             let dt = 0.5;
-            visitor.advance(speed, dt, (5.0, 5.0, 0.0)); 
+            visitor.advance(speed, dt, (5.0, 5.0, 0.0));
 
             let moved = distance((0.0, 0.0, 0.0), visitor.position);
             assert!((moved - speed * dt).abs() < 1e-5);
         }
 
         #[test]
-        fn test_advance_keeps_a_visitor_within_a_single_wide_corridor_even_under_strong_lateral_repulsion() {
+        fn test_advance_keeps_a_visitor_within_a_single_wide_corridor_even_under_strong_lateral_repulsion()
+         {
             // A visitor on a corridor one cell wide (only y=0 is walkable) should never be
             // pushed to |y| >= 0.5 by repulsion alone, since that would round onto a
             // non-walkable neighbor cell. advance() has no notion of walkable cells though:
@@ -466,5 +506,4 @@ mod tests {
             );
         }
     }
-
 }

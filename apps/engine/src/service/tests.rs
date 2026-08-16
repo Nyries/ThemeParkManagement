@@ -1,5 +1,12 @@
 use super::*;
-use crate::{game::GameWorld, map::Parcel, simulation::{ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure, RemoveBuilding, RemoveInfrastructure, Rotation}};
+use crate::{
+    game::GameWorld,
+    map::Parcel,
+    simulation::{
+        ApplyTerrain, Coord, InfrastructureKind, PlaceBuilding, PlaceInfrastructure,
+        RemoveBuilding, RemoveInfrastructure, Rotation,
+    },
+};
 use std::sync::{Arc, Mutex};
 use tonic::Request;
 
@@ -12,7 +19,10 @@ fn build_service() -> SimulationEngineService {
         price: 0,
     });
     let (state_sender, _) = tokio::sync::broadcast::channel(16);
-    SimulationEngineService { world, state_sender }
+    SimulationEngineService {
+        world,
+        state_sender,
+    }
 }
 
 #[tokio::test]
@@ -21,9 +31,9 @@ async fn test_send_command_with_apply_terrain_succeeds() {
     let service = build_service();
 
     // 2. Creating a mock gRPC request
-    let apply_brush  = ApplyTerrain {
+    let apply_brush = ApplyTerrain {
         material_id: "grass".into(),
-        coordinates: vec![Coord {x:0, y:0, z:0}]
+        coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -38,8 +48,14 @@ async fn test_send_command_with_apply_terrain_succeeds() {
     let inner = response.unwrap().into_inner();
     let world = service.world.lock().unwrap();
     assert!(inner.success);
-    assert_eq!(inner.message, "Action executed and registered by the engine");
-    assert_eq!(world.park_map.get_terrain(0, 0, 0), Some(&"grass".to_string()))
+    assert_eq!(
+        inner.message,
+        "Action executed and registered by the engine"
+    );
+    assert_eq!(
+        world.park_map.get_terrain(0, 0, 0),
+        Some(&"grass".to_string())
+    )
 }
 
 #[tokio::test]
@@ -48,10 +64,10 @@ async fn test_send_command_with_place_infrastructure_succeeds() {
     let service = build_service();
 
     // 2. Creating a mock gRPC request
-    let place_infrastructure  = PlaceInfrastructure {
+    let place_infrastructure = PlaceInfrastructure {
         kind: InfrastructureKind::Path.into(),
         to_z: 0,
-        coordinates: vec![Coord {x:0, y:0, z:0}]
+        coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -66,20 +82,30 @@ async fn test_send_command_with_place_infrastructure_succeeds() {
     let inner = response.unwrap().into_inner();
     let world = service.world.lock().unwrap();
     assert!(inner.success);
-    assert_eq!(inner.message, "Action executed and registered by the engine");
-    assert_eq!(world.park_map.get_infrastructure(0, 0, 0), Some(&InfrastructureShape::Path))
-    
+    assert_eq!(
+        inner.message,
+        "Action executed and registered by the engine"
+    );
+    assert_eq!(
+        world.park_map.get_infrastructure(0, 0, 0),
+        Some(&InfrastructureShape::Path)
+    )
 }
 
-    #[tokio::test]
+#[tokio::test]
 async fn test_send_command_with_remove_infrastructure_succeeds() {
     // 1. Initialization of a world and a test service
     let service = build_service();
-    service.world.lock().unwrap().park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+    service
+        .world
+        .lock()
+        .unwrap()
+        .park_map
+        .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
     // 2. Creating a mock gRPC request
-    let remove_infrasture  = RemoveInfrastructure {
-        coordinates: [Coord { x: 0, y: 0, z: 0 }].to_vec()
+    let remove_infrasture = RemoveInfrastructure {
+        coordinates: [Coord { x: 0, y: 0, z: 0 }].to_vec(),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -94,7 +120,10 @@ async fn test_send_command_with_remove_infrastructure_succeeds() {
     let inner = response.unwrap().into_inner();
     let world = service.world.lock().unwrap();
     assert!(inner.success);
-    assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert_eq!(
+        inner.message,
+        "Action executed and registered by the engine"
+    );
     assert!(world.park_map.get_infrastructure(0, 0, 0).is_none());
 }
 
@@ -104,17 +133,17 @@ async fn test_send_command_with_place_building_succeeds() {
     let service = build_service();
     service.world.lock().unwrap().park_map.parcels.push(Parcel {
         id: "p2".into(),
-        cells: vec![(1,0), (0,1), (1,1)],
+        cells: vec![(1, 0), (0, 1), (1, 1)],
         unlocked: true,
         price: 0,
     });
     service.world.lock().unwrap().balance = 5000.0; // sit_down_restaurant costs 3000, above the 1000.0 default
 
     // 2. Creating a mock gRPC request
-    let place_building  = PlaceBuilding {
+    let place_building = PlaceBuilding {
         template_id: "sit_down_restaurant".into(),
-        origin: Some(Coord {x:0, y:0, z:0}),
-        rotation: Rotation::Deg0.into()
+        origin: Some(Coord { x: 0, y: 0, z: 0 }),
+        rotation: Rotation::Deg0.into(),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -129,7 +158,10 @@ async fn test_send_command_with_place_building_succeeds() {
     let inner = response.unwrap().into_inner();
     let world = service.world.lock().unwrap();
     assert!(inner.success);
-    assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert_eq!(
+        inner.message,
+        "Action executed and registered by the engine"
+    );
     assert!(world.park_map.get_building(0, 0, 0).is_some());
     assert!(world.park_map.get_building(1, 0, 0).is_some());
     assert!(world.park_map.get_building(0, 1, 0).is_some());
@@ -141,7 +173,7 @@ async fn test_send_command_with_place_building_debits_balance_on_success() {
     let service = build_service();
     service.world.lock().unwrap().park_map.parcels.push(Parcel {
         id: "p2".into(),
-        cells: vec![(1,0), (0,1), (1,1)],
+        cells: vec![(1, 0), (0, 1), (1, 1)],
         unlocked: true,
         price: 0,
     });
@@ -149,8 +181,8 @@ async fn test_send_command_with_place_building_debits_balance_on_success() {
 
     let place_building = PlaceBuilding {
         template_id: "sit_down_restaurant".into(), // cost: 3000
-        origin: Some(Coord {x:0, y:0, z:0}),
-        rotation: Rotation::Deg0.into()
+        origin: Some(Coord { x: 0, y: 0, z: 0 }),
+        rotation: Rotation::Deg0.into(),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -168,7 +200,7 @@ async fn test_send_command_with_place_building_fails_when_funds_insufficient() {
     let service = build_service();
     service.world.lock().unwrap().park_map.parcels.push(Parcel {
         id: "p2".into(),
-        cells: vec![(1,0), (0,1), (1,1)],
+        cells: vec![(1, 0), (0, 1), (1, 1)],
         unlocked: true,
         price: 0,
     });
@@ -176,8 +208,8 @@ async fn test_send_command_with_place_building_fails_when_funds_insufficient() {
 
     let place_building = PlaceBuilding {
         template_id: "sit_down_restaurant".into(),
-        origin: Some(Coord {x:0, y:0, z:0}),
-        rotation: Rotation::Deg0.into()
+        origin: Some(Coord { x: 0, y: 0, z: 0 }),
+        rotation: Rotation::Deg0.into(),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -192,22 +224,33 @@ async fn test_send_command_with_place_building_fails_when_funds_insufficient() {
     assert_eq!(inner.error_code, ErrorCode::ErrorInsufficientFunds as i32);
     assert_eq!(inner.message, "Not enough funds");
     let world = service.world.lock().unwrap();
-    assert!(world.park_map.get_building(0, 0, 0).is_none(), "building must not be placed when funds are insufficient");
-    assert_eq!(world.balance, 100.0, "balance must not be debited when the placement is rejected");
+    assert!(
+        world.park_map.get_building(0, 0, 0).is_none(),
+        "building must not be placed when funds are insufficient"
+    );
+    assert_eq!(
+        world.balance, 100.0,
+        "balance must not be debited when the placement is rejected"
+    );
 }
 
 #[tokio::test]
 async fn test_send_command_with_remove_building_succeeds() {
     // 1. Initialization of a world and a test service
     let service = build_service();
-    service.world.lock().unwrap().park_map.set_building(0, 0, 0, BuildingId {
-        building_id: "building-1".into(),
-        template_id: "restaurant-1".into(),
-    });
+    service.world.lock().unwrap().park_map.set_building(
+        0,
+        0,
+        0,
+        BuildingId {
+            building_id: "building-1".into(),
+            template_id: "restaurant-1".into(),
+        },
+    );
 
     // 2. Creating a mock gRPC request
-    let remove_building  = RemoveBuilding {
-        position: Some(Coord { x: 0, y: 0, z: 0 })
+    let remove_building = RemoveBuilding {
+        position: Some(Coord { x: 0, y: 0, z: 0 }),
     };
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
@@ -222,7 +265,10 @@ async fn test_send_command_with_remove_building_succeeds() {
     let inner = response.unwrap().into_inner();
     let world = service.world.lock().unwrap();
     assert!(inner.success);
-    assert_eq!(inner.message, "Action executed and registered by the engine");
+    assert_eq!(
+        inner.message,
+        "Action executed and registered by the engine"
+    );
     assert!(world.park_map.get_building(0, 0, 0).is_none());
 }
 
@@ -231,7 +277,7 @@ async fn test_send_command_without_command_fails() {
     let service = build_service();
     let request = Request::new(CommandRequest {
         park_id: "1".into(),
-        command: None
+        command: None,
     });
 
     let response = service.send_command(request).await;
@@ -246,13 +292,13 @@ async fn test_send_command_without_command_fails() {
 async fn test_send_command_with_empty_park_id_fails() {
     let service = build_service();
 
-    let apply_terrain  = ApplyTerrain {
+    let apply_terrain = ApplyTerrain {
         material_id: "grass".into(),
-        coordinates: vec![Coord {x:0, y:0, z:0}]
+        coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
     };
     let request = Request::new(CommandRequest {
         park_id: "".into(),
-        command: Command::ApplyTerrain(apply_terrain).into()
+        command: Command::ApplyTerrain(apply_terrain).into(),
     });
 
     let response = service.send_command(request).await;
@@ -267,11 +313,23 @@ async fn test_send_command_with_empty_park_id_fails() {
 async fn test_get_map_returns_terrain_and_infrastructure_cells() {
     // 1. Initialization of a world and a test service
     let service = build_service();
-    service.world.lock().unwrap().park_map.set_terrain(0, 0, 0, "grass".into());
-    service.world.lock().unwrap().park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Ramp { to_z: 1 });
+    service
+        .world
+        .lock()
+        .unwrap()
+        .park_map
+        .set_terrain(0, 0, 0, "grass".into());
+    service.world.lock().unwrap().park_map.set_infrastructure(
+        1,
+        0,
+        0,
+        InfrastructureShape::Ramp { to_z: 1 },
+    );
 
     // 2. Creating a mock gRPC request
-    let request = Request::new(StateRequest { park_id: "1".into() });
+    let request = Request::new(StateRequest {
+        park_id: "1".into(),
+    });
 
     // 3. Calling the gRPC method
     let response = service.get_map(request).await;
@@ -279,15 +337,21 @@ async fn test_get_map_returns_terrain_and_infrastructure_cells() {
     // 4. Assertions
     assert!(response.is_ok());
     let inner = response.unwrap().into_inner();
-    assert_eq!(inner.terrain, vec![TerrainCell {
-        coord: Some(Coord { x: 0, y: 0, z: 0 }),
-        material_id: "grass".into(),
-    }]);
-    assert_eq!(inner.infrastructure, vec![InfrastructureCell {
-        coord: Some(Coord { x: 1, y: 0, z: 0 }),
-        kind: InfrastructureKind::Ramp.into(),
-        to_z: 1,
-    }]);
+    assert_eq!(
+        inner.terrain,
+        vec![TerrainCell {
+            coord: Some(Coord { x: 0, y: 0, z: 0 }),
+            material_id: "grass".into(),
+        }]
+    );
+    assert_eq!(
+        inner.infrastructure,
+        vec![InfrastructureCell {
+            coord: Some(Coord { x: 1, y: 0, z: 0 }),
+            kind: InfrastructureKind::Ramp.into(),
+            to_z: 1,
+        }]
+    );
 }
 
 #[tokio::test]
@@ -296,7 +360,9 @@ async fn test_get_map_returns_the_map_bounds() {
     let service = build_service();
 
     // 2. Creating a mock gRPC request
-    let request = Request::new(StateRequest { park_id: "1".into() });
+    let request = Request::new(StateRequest {
+        park_id: "1".into(),
+    });
 
     // 3. Calling the gRPC method
     let response = service.get_map(request).await;
@@ -317,7 +383,9 @@ async fn test_get_map_returns_the_entrance_when_set() {
     service.world.lock().unwrap().park_map.entrance = Some((2, 3, 0));
 
     // 2. Creating a mock gRPC request
-    let request = Request::new(StateRequest { park_id: "1".into() });
+    let request = Request::new(StateRequest {
+        park_id: "1".into(),
+    });
 
     // 3. Calling the gRPC method
     let response = service.get_map(request).await;
@@ -333,7 +401,9 @@ async fn test_get_map_returns_no_entrance_when_unset() {
     let service = build_service();
 
     // 2. Creating a mock gRPC request
-    let request = Request::new(StateRequest { park_id: "1".into() });
+    let request = Request::new(StateRequest {
+        park_id: "1".into(),
+    });
 
     // 3. Calling the gRPC method
     let response = service.get_map(request).await;

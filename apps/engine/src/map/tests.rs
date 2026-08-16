@@ -20,7 +20,7 @@ mod movement_cost_for_and_vertical {
         result = movement_cost_for("water");
         assert_eq!(result, 10);
     }
-    
+
     #[test]
     fn test_vertical_movement_cost_for_with_different_infrastructure() {
         let mut result = vertical_movement_cost_for(&InfrastructureShape::Path);
@@ -75,7 +75,9 @@ mod terrain {
 
         park_map.set_terrain(0, 0, 0, "grass".into());
 
-        let material = park_map.get_terrain(0, 0, 0).expect("The terrain should exist");
+        let material = park_map
+            .get_terrain(0, 0, 0)
+            .expect("The terrain should exist");
         assert_eq!(material, "grass");
     }
 }
@@ -91,12 +93,13 @@ mod infrastructure {
 
         park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
-        let infrastructure_kind = park_map.get_infrastructure(0, 0, 0).expect("The infrastructure should exist");
+        let infrastructure_kind = park_map
+            .get_infrastructure(0, 0, 0)
+            .expect("The infrastructure should exist");
         assert_eq!(infrastructure_kind, &InfrastructureShape::Path);
-        
+
         park_map.remove_infrasture(0, 0, 0);
         assert!(park_map.get_infrastructure(0, 0, 0).is_none())
-
     }
 }
 
@@ -143,26 +146,39 @@ mod buildings {
 
         assert!(park_map.get_building(0, 0, 0).is_none());
 
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "coaster-1".into(),
+                template_id: "b&m-1".into(),
+            },
+        );
 
-        let building_id = park_map.get_building(0, 0, 0).expect("The building should exist");
+        let building_id = park_map
+            .get_building(0, 0, 0)
+            .expect("The building should exist");
         assert_eq!(building_id.building_id, "coaster-1");
     }
 
     #[test]
     fn test_place_building_and_get_building_coords_by_building_id() {
         let mut park_map = build_test_map();
-        let origin = (0,0,0);
-        let footprint = [(0,0), (0,1), (1,1)];
+        let origin = (0, 0, 0);
+        let footprint = [(0, 0), (0, 1), (1, 1)];
         let rotation = Rotation::Deg180;
-        let building_id = BuildingId { building_id: "building-1".to_string(), template_id: "restaurant-1".to_string() };
+        let building_id = BuildingId {
+            building_id: "building-1".to_string(),
+            template_id: "restaurant-1".to_string(),
+        };
         assert!(park_map.get_building(0, 0, 0).is_none());
 
         park_map.place_building(origin, &footprint, rotation, building_id);
-        
+
         let mut coords = park_map.get_building_coords_by_building_id("building-1");
         coords.sort();
-        assert_eq!(coords,[(-1,-1,0), (0,-1,0), (0,0,0)])
+        assert_eq!(coords, [(-1, -1, 0), (0, -1, 0), (0, 0, 0)])
     }
 
     #[test]
@@ -185,9 +201,12 @@ mod buildings {
     #[test]
     fn test_remove_building_purges_full_footprint_from_any_cell() {
         let mut park_map = build_test_map();
-        let origin = (0,0,0);
+        let origin = (0, 0, 0);
         let footprint = [(0, 0), (0, 1), (1, 1)];
-        let building_id = BuildingId { building_id: "building-1".to_string(), template_id: "restaurant-1".to_string() };
+        let building_id = BuildingId {
+            building_id: "building-1".to_string(),
+            template_id: "restaurant-1".to_string(),
+        };
 
         park_map.place_building(origin, &footprint, Rotation::Deg0, building_id);
         assert!(park_map.get_building(0, 0, 0).is_some());
@@ -200,7 +219,6 @@ mod buildings {
         assert!(park_map.get_building(0, 1, 0).is_none());
         assert!(park_map.get_building(1, 1, 0).is_none());
     }
-    
 }
 
 mod parcels_and_levels {
@@ -278,7 +296,15 @@ mod can_apply_terrain {
             unlocked: true,
             price: 0,
         });
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "coaster-1".into(),
+                template_id: "b&m-1".into(),
+            },
+        );
 
         let result = park_map.can_apply_terrain(0, 0, 0);
 
@@ -299,8 +325,6 @@ mod can_apply_terrain {
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
-
-
 }
 
 mod can_place_infrastructure {
@@ -342,7 +366,12 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
 
         // to_z ignoré pour Path
-        let result = park_map.can_place_infrastructure(&test_catalog(),InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 0)],
+        );
 
         assert!(result.is_ok());
     }
@@ -351,7 +380,12 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_out_of_bounds() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(5, 5, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(5, 5, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -360,7 +394,12 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_fails_on_locked_parcel() {
         let park_map = ParkMap::new("map-1".into(), Bounds3d::new(0, 0, 0, 0, -1, 2)); // pas de parcelle
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -368,9 +407,22 @@ mod can_place_infrastructure {
     #[test]
     fn test_can_place_infrastructure_fails_on_building_collision() {
         let mut park_map = build_infra_test_map();
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-1".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "coaster-1".into(),
+                template_id: "b&m-1".into(),
+            },
+        );
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorCollision));
     }
@@ -380,7 +432,12 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.set_terrain(0, 0, 0, "water".into());
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -391,7 +448,12 @@ mod can_place_infrastructure {
         park_map.set_terrain(0, 0, 0, "water".into());
 
         // Pont = Path à z=+1 au-dessus de l'eau à z=0
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 1)],
+        );
 
         assert!(result.is_ok());
     }
@@ -399,9 +461,22 @@ mod can_place_infrastructure {
     #[test]
     fn test_can_place_infrastructure_fails_crossing_not_allowed_above_building() {
         let mut park_map = build_infra_test_map();
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "shop-1".into(), template_id: "shop".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "shop-1".into(),
+                template_id: "shop".into(),
+            },
+        );
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 1)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -409,9 +484,22 @@ mod can_place_infrastructure {
     #[test]
     fn test_can_place_infrastructure_allows_passerelle_above_building_with_flag() {
         let mut park_map = build_infra_test_map();
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "support-1".into(), template_id: "bridge_support".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "support-1".into(),
+                template_id: "bridge_support".into(),
+            },
+        );
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Path, 0, &[(0, 0, 1)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Path,
+            0,
+            &[(0, 0, 1)],
+        );
 
         assert!(result.is_ok());
     }
@@ -420,7 +508,12 @@ mod can_place_infrastructure {
     fn test_can_place_infrastructure_succeeds_for_ramp_to_adjacent_level() {
         let park_map = build_infra_test_map();
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Ramp { to_z: 1 }, 1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Ramp { to_z: 1 },
+            1,
+            &[(0, 0, 0)],
+        );
 
         assert!(result.is_ok());
     }
@@ -430,7 +523,12 @@ mod can_place_infrastructure {
         let mut park_map = build_infra_test_map();
         park_map.unlocked_levels.insert(2);
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Ramp { to_z: 2 }, 2, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Ramp { to_z: 2 },
+            2,
+            &[(0, 0, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorCrossingNotAllowed));
     }
@@ -440,7 +538,12 @@ mod can_place_infrastructure {
         let park_map = build_infra_test_map();
         // to_z = -1 est dans les bornes mais pas dans unlocked_levels
 
-        let result = park_map.can_place_infrastructure(&test_catalog(), InfrastructureShape::Stairs { to_z: -1 }, -1, &[(0, 0, 0)]);
+        let result = park_map.can_place_infrastructure(
+            &test_catalog(),
+            InfrastructureShape::Stairs { to_z: -1 },
+            -1,
+            &[(0, 0, 0)],
+        );
 
         assert_eq!(result, Err(ErrorCode::ErrorOutOfBounds));
     }
@@ -503,7 +606,7 @@ mod can_place_building {
     #[test]
     fn test_can_place_building_succeeds_on_free_cells() {
         let park_map = build_placement_test_map();
-        let footprint = vec![(0,0), (1,0), (1,1)];
+        let footprint = vec![(0, 0), (1, 0), (1, 1)];
 
         let result = park_map.can_place_building((2, 2, 0), &footprint, Rotation::Deg90);
 
@@ -513,7 +616,7 @@ mod can_place_building {
     #[test]
     fn test_can_place_building_fails_out_of_bounds() {
         let park_map = build_placement_test_map();
-        let footprint = vec![(0, 0), (1, 0)]; 
+        let footprint = vec![(0, 0), (1, 0)];
 
         let result = park_map.can_place_building((5, 5, 0), &footprint, Rotation::Deg0);
 
@@ -533,7 +636,15 @@ mod can_place_building {
     #[test]
     fn test_can_place_building_fails_on_building_collision() {
         let mut park_map = build_placement_test_map();
-        park_map.set_building(2, 2, 0, BuildingId { building_id: "existing".into(), template_id: "shop".into() });
+        park_map.set_building(
+            2,
+            2,
+            0,
+            BuildingId {
+                building_id: "existing".into(),
+                template_id: "shop".into(),
+            },
+        );
         let footprint = vec![(0, 0)];
 
         let result = park_map.can_place_building((2, 2, 0), &footprint, Rotation::Deg0);
@@ -572,7 +683,15 @@ mod can_place_building {
     #[test]
     fn test_can_place_building_fails_on_collision_only_visible_after_rotation() {
         let mut park_map = build_placement_test_map();
-        park_map.set_building(1, 2, 0, BuildingId { building_id: "existing".into(), template_id: "shop".into() });
+        park_map.set_building(
+            1,
+            2,
+            0,
+            BuildingId {
+                building_id: "existing".into(),
+                template_id: "shop".into(),
+            },
+        );
 
         let footprint = vec![(0, 0), (0, 1)];
 
@@ -582,7 +701,6 @@ mod can_place_building {
         let result_deg90 = park_map.can_place_building((2, 2, 0), &footprint, Rotation::Deg90);
         assert_eq!(result_deg90, Err(ErrorCode::ErrorCollision));
     }
-
 }
 
 mod can_remove_building {
@@ -591,7 +709,15 @@ mod can_remove_building {
     #[test]
     fn test_can_remove_building_succeeds_when_something_exists() {
         let mut park_map = build_test_map();
-        park_map.set_building(0, 0, 0, BuildingId { building_id: "coaster-1".into(), template_id: "b&m-giga".into() });
+        park_map.set_building(
+            0,
+            0,
+            0,
+            BuildingId {
+                building_id: "coaster-1".into(),
+                template_id: "b&m-giga".into(),
+            },
+        );
 
         assert!(park_map.can_remove_building(0, 0, 0).is_ok());
     }

@@ -1,8 +1,11 @@
-use std::collections::{HashMap, HashSet};
 use rand::seq::IteratorRandom;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
-use crate::{building_template::BuildingCatalog, simulation::{ErrorCode, Rotation}};
+use crate::{
+    building_template::BuildingCatalog,
+    simulation::{ErrorCode, Rotation},
+};
 
 pub(crate) fn movement_cost_for(material_id: &str) -> u32 {
     match material_id {
@@ -30,12 +33,15 @@ pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
 }
 
 fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i32)> {
-    footprint.iter().map(|&(dx, dy)| match rotation {
-        Rotation::Deg0 => (dx, dy),
-        Rotation::Deg90 => (-dy, dx),
-        Rotation::Deg180 => (-dx, -dy),
-        Rotation::Deg270 => (dy, -dx),
-    }).collect()
+    footprint
+        .iter()
+        .map(|&(dx, dy)| match rotation {
+            Rotation::Deg0 => (dx, dy),
+            Rotation::Deg90 => (-dy, dx),
+            Rotation::Deg180 => (-dx, -dy),
+            Rotation::Deg270 => (dy, -dx),
+        })
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -72,21 +78,21 @@ impl Bounds3d {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum InfrastructureShape {
     Path,
-    Ramp{to_z: i32},
-    Stairs{to_z: i32}
+    Ramp { to_z: i32 },
+    Stairs { to_z: i32 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct BuildingId {
     pub building_id: String,
-    pub template_id: String
+    pub template_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ParkMap {
     pub map_id: String,
     pub bounds: Bounds3d,
-    pub terrain: HashMap<(i32, i32, i32), String /*Material */ >,
+    pub terrain: HashMap<(i32, i32, i32), String /*Material */>,
     pub infrastructure: HashMap<(i32, i32, i32), InfrastructureShape>,
     pub building: HashMap<(i32, i32, i32), BuildingId>,
     pub parcels: Vec<Parcel>,
@@ -95,7 +101,6 @@ pub struct ParkMap {
 }
 
 impl ParkMap {
-
     pub fn new(map_id: String, bounds: Bounds3d) -> Self {
         let mut unlocked_levels = HashSet::new();
         unlocked_levels.insert(0);
@@ -120,7 +125,13 @@ impl ParkMap {
         self.terrain.get(&(x, y, z))
     }
 
-    pub fn set_infrastructure(&mut self, x: i32, y: i32, z: i32, infrastructure_kind: InfrastructureShape) {
+    pub fn set_infrastructure(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        infrastructure_kind: InfrastructureShape,
+    ) {
         self.infrastructure.insert((x, y, z), infrastructure_kind);
     }
 
@@ -134,12 +145,17 @@ impl ParkMap {
 
     pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
         let mut rng = rand::thread_rng();
-        self.infrastructure.keys()
+        self.infrastructure
+            .keys()
             .filter(|&&cell| cell != exclude)
             .choose(&mut rng)
             .copied()
-            .or(if self.infrastructure.is_empty() { None } else { Some(exclude) })
-        }
+            .or(if self.infrastructure.is_empty() {
+                None
+            } else {
+                Some(exclude)
+            })
+    }
 
     pub fn set_building(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
         self.building.insert((x, y, z), building_id);
@@ -149,14 +165,21 @@ impl ParkMap {
         self.building.get(&(x, y, z))
     }
 
-    pub fn get_building_coords_by_building_id(&self, building_id: &str) -> Vec<(i32, i32, i32)>{
-        self.building.iter()
-            .filter(|(_,b)| b.building_id == building_id)
+    pub fn get_building_coords_by_building_id(&self, building_id: &str) -> Vec<(i32, i32, i32)> {
+        self.building
+            .iter()
+            .filter(|(_, b)| b.building_id == building_id)
             .map(|(&coord, _)| coord)
             .collect()
     }
 
-    pub fn place_building(&mut self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation, building_id: BuildingId) { 
+    pub fn place_building(
+        &mut self,
+        origin: (i32, i32, i32),
+        footprint: &[(i32, i32)],
+        rotation: Rotation,
+        building_id: BuildingId,
+    ) {
         let (ox, oy, oz) = origin;
         let rotated = rotate_footprint(footprint, rotation);
 
@@ -164,7 +187,7 @@ impl ParkMap {
             self.set_building(ox + dx, oy + dy, oz, building_id.clone());
         }
     }
-    
+
     pub fn remove_building(&mut self, x: i32, y: i32, z: i32) {
         if let Some(building) = self.get_building(x, y, z) {
             let building_id = building.building_id.clone();
@@ -183,9 +206,12 @@ impl ParkMap {
     }
 
     pub(crate) fn is_within_bounds(&self, x: i32, y: i32, z: i32) -> bool {
-        x>= self.bounds.min_x && x <= self.bounds.max_x
-        && y >= self.bounds.min_y && y <= self.bounds.max_y
-        && z >= self.bounds.min_z && z <= self.bounds.max_z 
+        x >= self.bounds.min_x
+            && x <= self.bounds.max_x
+            && y >= self.bounds.min_y
+            && y <= self.bounds.max_y
+            && z >= self.bounds.min_z
+            && z <= self.bounds.max_z
     }
 
     fn is_level_available(&self, z: i32) -> bool {
@@ -205,8 +231,14 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_place_infrastructure(&self, catalog: &BuildingCatalog, kind: InfrastructureShape, to_z: i32, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
-        for &(x, y,z) in coordinates {
+    pub fn can_place_infrastructure(
+        &self,
+        catalog: &BuildingCatalog,
+        kind: InfrastructureShape,
+        to_z: i32,
+        coordinates: &[(i32, i32, i32)],
+    ) -> Result<(), ErrorCode> {
+        for &(x, y, z) in coordinates {
             if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
                 return Err(ErrorCode::ErrorOutOfBounds);
             }
@@ -216,13 +248,22 @@ impl ParkMap {
             if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
-            if z==0 && let Some(material) = self.get_terrain(x, y, z) && material == "water" {
+            if z == 0
+                && let Some(material) = self.get_terrain(x, y, z)
+                && material == "water"
+            {
                 // Add other material_id maybe with an inside field
                 return Err(ErrorCode::ErrorCrossingNotAllowed);
             }
-            if (z == 1 || z == -1) && let Some(building) = self.get_building(x, y, 0) {
+            if (z == 1 || z == -1)
+                && let Some(building) = self.get_building(x, y, 0)
+            {
                 let allowed = catalog.get(&building.template_id).is_some_and(|t| {
-                    if z == 1 { t.crossing_flags.bridge_above_allowed } else { t.crossing_flags.tunnel_below_allowed }
+                    if z == 1 {
+                        t.crossing_flags.bridge_above_allowed
+                    } else {
+                        t.crossing_flags.tunnel_below_allowed
+                    }
                 });
                 if !allowed {
                     return Err(ErrorCode::ErrorCrossingNotAllowed);
@@ -235,12 +276,15 @@ impl ParkMap {
                 if (to_z - z).abs() != 1 {
                     return Err(ErrorCode::ErrorCrossingNotAllowed);
                 }
-             }
+            }
         }
         Ok(())
     }
 
-    pub fn can_remove_infrastructure(&self, coordinates: &[(i32, i32, i32)]) -> Result<(), ErrorCode> {
+    pub fn can_remove_infrastructure(
+        &self,
+        coordinates: &[(i32, i32, i32)],
+    ) -> Result<(), ErrorCode> {
         for &(x, y, z) in coordinates {
             if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
                 return Err(ErrorCode::ErrorOutOfBounds);
@@ -252,14 +296,19 @@ impl ParkMap {
         Ok(())
     }
 
-    pub fn can_place_building(&self, origin: (i32, i32, i32), footprint: &[(i32, i32)], rotation: Rotation) -> Result<(), ErrorCode> {
+    pub fn can_place_building(
+        &self,
+        origin: (i32, i32, i32),
+        footprint: &[(i32, i32)],
+        rotation: Rotation,
+    ) -> Result<(), ErrorCode> {
         let (ox, oy, oz) = origin;
         let rotated = rotate_footprint(footprint, rotation);
 
         for (dx, dy) in rotated {
             let (x, y, z) = (ox + dx, oy + dy, oz);
 
-            if !self.is_within_bounds(x, y, z) || !self.is_level_available(z){
+            if !self.is_within_bounds(x, y, z) || !self.is_level_available(z) {
                 return Err(ErrorCode::ErrorOutOfBounds);
             }
             if !self.is_unlocked(x, y) {
@@ -268,7 +317,9 @@ impl ParkMap {
             if self.get_building(x, y, z).is_some() {
                 return Err(ErrorCode::ErrorCollision);
             }
-            if let Some(material) = self.get_terrain(x, y, z) && material == "water" {
+            if let Some(material) = self.get_terrain(x, y, z)
+                && material == "water"
+            {
                 //Careful: "water" hardly coded to be redefined in function of the property of the material {block_paths: bool}
                 return Err(ErrorCode::ErrorCollision);
             }
@@ -286,8 +337,6 @@ impl ParkMap {
 
         Ok(())
     }
-
-
 }
 
 #[cfg(test)]

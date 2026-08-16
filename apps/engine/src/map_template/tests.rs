@@ -42,7 +42,9 @@ mod parse_infrastructure_kind {
     fn test_unknown_kind_fails() {
         let result = parse_infrastructure_kind("teleporter", None);
 
-        assert!(matches!(result, Err(MapLoadError::UnknownInfrastructureKind(k)) if k == "teleporter"));
+        assert!(
+            matches!(result, Err(MapLoadError::UnknownInfrastructureKind(k)) if k == "teleporter")
+        );
     }
 }
 
@@ -62,7 +64,8 @@ mod load {
     }"#;
 
     fn write_temp_json(content: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("map_template_test_{}.json", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("map_template_test_{}.json", uuid::Uuid::new_v4()));
         std::fs::write(&path, content).unwrap();
         path
     }
@@ -125,11 +128,17 @@ mod into_park_map {
         MapTemplate {
             archetype: "test".into(),
             name: "Test".into(),
-            dimensions: Dimensions { width: 2, height: 2, levels: vec![0] },
+            dimensions: Dimensions {
+                width: 2,
+                height: 2,
+                levels: vec![0],
+            },
             default_terrain: "grass".into(),
             terrain: vec![],
             infrastructure: vec![InfrastructureEntry {
-                x: 0, y: 0, z: 0,
+                x: 0,
+                y: 0,
+                z: 0,
                 kind: "path".into(),
                 to_z: None,
             }],
@@ -143,7 +152,9 @@ mod into_park_map {
     fn test_loads_all_four_layers_correctly() {
         let mut template = base_template();
         template.buildings.push(BuildingEntry {
-            x: 1, y: 0, z: 0,
+            x: 1,
+            y: 0,
+            z: 0,
             building_id: "b1".into(),
             template_id: "restaurant-1".into(),
         });
@@ -157,7 +168,10 @@ mod into_park_map {
         let park_map = template.into_park_map().unwrap();
 
         assert_eq!(park_map.get_terrain(0, 1, 0), Some(&"grass".to_string()));
-        assert_eq!(park_map.get_infrastructure(0, 0, 0), Some(&InfrastructureShape::Path));
+        assert_eq!(
+            park_map.get_infrastructure(0, 0, 0),
+            Some(&InfrastructureShape::Path)
+        );
         assert!(park_map.get_building(1, 0, 0).is_some());
         assert!(park_map.is_unlocked(0, 0));
     }
@@ -174,7 +188,12 @@ mod into_park_map {
     #[test]
     fn test_terrain_exception_overrides_default() {
         let mut template = base_template();
-        template.terrain.push(TerrainEntry { x: 1, y: 1, z: 0, material: "water".into() });
+        template.terrain.push(TerrainEntry {
+            x: 1,
+            y: 1,
+            z: 0,
+            material: "water".into(),
+        });
 
         let park_map = template.into_park_map().unwrap();
 
@@ -184,11 +203,19 @@ mod into_park_map {
     #[test]
     fn test_out_of_bounds_terrain_entry_fails_explicitly() {
         let mut template = base_template();
-        template.terrain.push(TerrainEntry { x: 99, y: 0, z: 0, material: "grass".into() });
+        template.terrain.push(TerrainEntry {
+            x: 99,
+            y: 0,
+            z: 0,
+            material: "grass".into(),
+        });
 
         let result = template.into_park_map();
 
-        assert!(matches!(result, Err(MapLoadError::OutOfBounds { x: 99, y: 0, z: 0 })));
+        assert!(matches!(
+            result,
+            Err(MapLoadError::OutOfBounds { x: 99, y: 0, z: 0 })
+        ));
     }
 
     #[test]
@@ -203,21 +230,28 @@ mod into_park_map {
 
         let result = template.into_park_map();
 
-        assert!(matches!(result, Err(MapLoadError::OutOfBounds { x: 99, y: 99, .. })));
+        assert!(matches!(
+            result,
+            Err(MapLoadError::OutOfBounds { x: 99, y: 99, .. })
+        ));
     }
 
     #[test]
     fn test_unknown_infrastructure_kind_fails_explicitly() {
         let mut template = base_template();
         template.infrastructure.push(InfrastructureEntry {
-            x: 1, y: 1, z: 0,
+            x: 1,
+            y: 1,
+            z: 0,
             kind: "teleporter".into(),
             to_z: None,
         });
 
         let result = template.into_park_map();
 
-        assert!(matches!(result, Err(MapLoadError::UnknownInfrastructureKind(k)) if k == "teleporter"));
+        assert!(
+            matches!(result, Err(MapLoadError::UnknownInfrastructureKind(k)) if k == "teleporter")
+        );
     }
 
     #[test]
@@ -255,10 +289,13 @@ mod first_map_fixture {
 
     #[test]
     fn test_first_map_json_loads_into_valid_park_map() {
-        let template = MapTemplate::load(MapSource::Embedded(include_str!("../../assets/maps/first-map.json")))
-            .expect("first-map.json should parse");
+        let template = MapTemplate::load(MapSource::Embedded(include_str!(
+            "../../assets/maps/first-map.json"
+        )))
+        .expect("first-map.json should parse");
 
-        let park_map = template.into_park_map()
+        let park_map = template
+            .into_park_map()
             .expect("first-map.json should build a valid ParkMap");
 
         assert_eq!(park_map.entrance, Some((1, 1, 0)));

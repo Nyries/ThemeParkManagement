@@ -95,10 +95,7 @@ mod find_path {
 
         let result = map.find_path((0, 0, 0), (3, 0, 0));
 
-        assert_eq!(
-            result,
-            Some((vec![(0, 0, 0), (3, 0, 0)], 3))
-        );
+        assert_eq!(result, Some((vec![(0, 0, 0), (3, 0, 0)], 3)));
     }
 
     #[test]
@@ -152,10 +149,10 @@ mod bresenham_line {
     #[test]
     fn test_bresenham_line() {
         let (x0, y0, x1, y1) = (0, 0, 4, 1);
-        
+
         let result = ParkMap::bresenham_line(x0, y0, x1, y1);
 
-        assert_eq!(result, [(0,0), (1,0), (2,1), (3,1), (4,1)]);
+        assert_eq!(result, [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1)]);
     }
 }
 
@@ -244,7 +241,12 @@ mod simplify_line_of_sight {
             map.set_infrastructure(x, 1, 0, InfrastructureShape::Path);
         }
         let raw_path = vec![
-            (0, 0, 0), (0, 1, 0), (1, 1, 0), (2, 1, 0), (3, 1, 0), (3, 0, 0),
+            (0, 0, 0),
+            (0, 1, 0),
+            (1, 1, 0),
+            (2, 1, 0),
+            (3, 1, 0),
+            (3, 0, 0),
         ];
 
         let result = map.simplify_line_of_sight(raw_path);
