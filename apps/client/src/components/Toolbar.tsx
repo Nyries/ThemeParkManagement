@@ -16,7 +16,7 @@ const TOOLS: { mode: Exclude<ToolMode, null>; label: string; icon: React.Compone
 
 export function Toolbar({ mode, onModeChange }: ToolbarProps) {
   return (
-    <div className="absolute right-4 top-4 z-10 flex gap-1 rounded-lg border border-border bg-white/80 p-1 shadow-sm backdrop-blur-sm">
+    <div className="flex gap-1 rounded-lg border border-border bg-white/80 p-1 shadow-sm backdrop-blur-sm">
       {TOOLS.map((tool) => {
         const Icon = tool.icon;
         const active = mode === tool.mode;

@@ -12,8 +12,14 @@ import { useParkSocket } from "../hooks/useParkSocket";
 import { mapFromResponse } from "../park/mapFromResponse";
 import { syncVisitorGraphics } from "../park/syncVisitors";
 import type { SelectionInfo } from "../park/selection";
-import type { PlaceBuilding, ToolState } from "../park/tool";
+import {
+  nextRotation,
+  rotateFootprint,
+  type PlaceBuilding,
+  type ToolState,
+} from "../park/tool";
 import { Toolbar } from "./Toolbar";
+import { SecondaryToolbar, type SecondaryToolbarHandle } from "./SecondaryToolbar";
 import {
   applyTerrainAt,
   placeBuildingAt,
@@ -33,8 +39,28 @@ const TEMPLATE_FOOTPRINT = [
   { x: 0, y: 0 },
   { x: 1, y: 0 },
   { x: 0, y: 1 },
-  { x: 1, y: 1 },
 ];
+
+const GHOST_VALID_COLOR = 0x2e6e62;
+const GHOST_INVALID_COLOR = 0xdc2626;
+const GHOST_ALPHA = 0.45;
+
+// Keyboard shortcuts: 1-4 select a tool, R/Shift+R rotate the building
+// ghost, Escape cancels the active tool. All of them must preempt the
+// browser's own default behavior for that key.
+//
+// Matched on event.code (physical key position) rather than event.key: on
+// an AZERTY layout the digit row only produces "1".."4" while holding
+// Shift, so event.key for an unshifted press is "&"/"é"/'"'/"'" instead —
+// event.code stays "Digit1".."Digit4" regardless of layout or Shift state.
+const SHORTCUT_CODES = new Set([
+  "Digit1",
+  "Digit2",
+  "Digit3",
+  "Digit4",
+  "KeyR",
+  "Escape",
+]);
 
 interface ParkProps {
   tool: ToolState;
@@ -44,6 +70,7 @@ interface ParkProps {
 
 export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const rotateButtonRef = useRef<SecondaryToolbarHandle>(null);
   const { sendCommand, onWorldState, onMap, isConnected } = useParkSocket();
 
   // handleCellClick lives inside the map-loading effect below, which must not
@@ -55,6 +82,77 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     toolRef.current = tool;
   }, [tool]);
 
+  // The ghost preview lives inside the map-loading effect too (it needs the
+  // PixiJS Graphics instance and the loaded grid data). Expose a way to
+  // trigger a redraw from outside that effect whenever the tool changes.
+  const updateGhostRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    updateGhostRef.current();
+  }, [tool]);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!SHORTCUT_CODES.has(event.code)) {
+        return;
+      }
+      event.preventDefault();
+
+      const currentTool = toolRef.current;
+      switch (event.code) {
+        case "Digit1":
+          onToolChange({
+            ...currentTool,
+            mode: currentTool.mode === "terrain" ? null : "terrain",
+          });
+          break;
+        case "Digit2":
+          onToolChange({
+            ...currentTool,
+            mode:
+              currentTool.mode === "infrastructure" ? null : "infrastructure",
+          });
+          break;
+        case "Digit3":
+          onToolChange({
+            ...currentTool,
+            mode: currentTool.mode === "building" ? null : "building",
+          });
+          break;
+        case "Digit4":
+          onToolChange({
+            ...currentTool,
+            mode: currentTool.mode === "remove" ? null : "remove",
+          });
+          break;
+        case "KeyR":
+          if (currentTool.mode === "building") {
+            // Goes through the rotate button's own handler (and its visual
+            // "pressed" feedback) rather than updating the tool state
+            // directly, so the shortcut behaves like clicking the button.
+            rotateButtonRef.current?.triggerRotate(event.shiftKey);
+          }
+          break;
+        case "Escape":
+          onToolChange({ ...currentTool, mode: null });
+          break;
+        default:
+          break;
+      }
+    }
+
+    container.addEventListener("keydown", handleKeyDown);
+    return () => container.removeEventListener("keydown", handleKeyDown);
+  }, [onToolChange]);
+
   useEffect(() => {
     // No selectable buildings/employees exist yet (TPM-149) — this only
     // signals the initial neutral state so InspectorPanel has something to render.
@@ -65,6 +163,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     let cancelled = false;
     let initialized = false;
     let unsubscribeWorldState: (() => void) | null = null;
+    let removePointerLeaveListener: (() => void) | null = null;
     const app = new Application();
 
     onMap().then(async (mapResponse) => {
@@ -82,6 +181,58 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         () => [],
       );
       const visitorGraphics = new Map<string, Graphics>();
+      const ghost = new Graphics();
+      const hoveredCellRef: { current: { x: number; y: number } | null } = {
+        current: null,
+      };
+
+      // A footprint is placeable if every cell it covers is within the grid
+      // and free of both an existing building and infrastructure (a
+      // building cannot be dropped on top of a path).
+      function isFootprintValid(
+        originX: number,
+        originY: number,
+        footprint: { x: number; y: number }[],
+      ): boolean {
+        return footprint.every((offset) => {
+          const cx = originX + offset.x;
+          const cy = originY + offset.y;
+          return (
+            cx >= 0 &&
+            cx < width &&
+            cy >= 0 &&
+            cy < height &&
+            !buildingGrid[cy][cx] &&
+            !infrastructure[cy][cx]
+          );
+        });
+      }
+
+      function updateGhost() {
+        ghost.clear();
+        const currentTool = toolRef.current;
+        const hovered = hoveredCellRef.current;
+        if (currentTool.mode !== "building" || !hovered) {
+          return;
+        }
+
+        const rotation = currentTool.rotation ?? Rotation.ROTATION_DEG_0;
+        const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
+        const valid = isFootprintValid(hovered.x, hovered.y, footprint);
+
+        const color = valid ? GHOST_VALID_COLOR : GHOST_INVALID_COLOR;
+        for (const offset of footprint) {
+          const cx = hovered.x + offset.x;
+          const cy = hovered.y + offset.y;
+          if (cx < 0 || cx >= width || cy < 0 || cy >= height) {
+            continue;
+          }
+          ghost
+            .rect(toScreenX(cx), toScreenY(cy, height), CELL_SIZE, CELL_SIZE)
+            .fill({ color, alpha: GHOST_ALPHA });
+        }
+      }
+      updateGhostRef.current = updateGhost;
 
       async function handleCellClick(x: number, y: number) {
         let response;
@@ -131,13 +282,24 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             cell.cursor = "default";
             break;
           case "building": {
+            const rotation = toolRef.current.rotation ?? Rotation.ROTATION_DEG_0;
+            const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
+
+            if (!isFootprintValid(x, y, footprint)) {
+              toast.error("Failed to place the building", {
+                description:
+                  "Emplacement invalide : chevauche un bâtiment ou une infrastructure existante.",
+              });
+              break;
+            }
+
             response = await placeBuildingAt(
               sendCommand,
               PARK_ID,
               TEMPLATE_ID,
               x,
               y,
-              Rotation.ROTATION_DEG_0,
+              rotation,
             );
             if (!response.success) {
               toast.error("Failed to place the building", {
@@ -151,10 +313,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             buildings.set(key, {
               templateId: TEMPLATE_ID,
               origin: { x, y },
-              rotation: Rotation.ROTATION_DEG_0,
-              footprint: TEMPLATE_FOOTPRINT,
+              rotation,
+              footprint,
             });
-            for (const offset of TEMPLATE_FOOTPRINT) {
+            for (const offset of footprint) {
               const cx = x + offset.x;
               const cy = y + offset.y;
               buildingGrid[cy][cx] = key;
@@ -166,6 +328,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
                 .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
               occupiedCell.cursor = "default";
             }
+            updateGhost();
             break;
           }
           case "remove": {
@@ -254,6 +417,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           cell.eventMode = "static";
           cell.cursor = "pointer";
           cell.on("pointertap", () => handleCellClick(x, y));
+          cell.on("pointerover", () => {
+            hoveredCellRef.current = { x, y };
+            updateGhost();
+          });
 
           cellGraphics[y][x] = cell;
           app.stage.addChild(cell);
@@ -278,6 +445,17 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         app.stage.addChild(label);
       }
 
+      app.stage.addChild(ghost);
+
+      const containerEl = containerRef.current;
+      function handlePointerLeave() {
+        hoveredCellRef.current = null;
+        updateGhost();
+      }
+      containerEl?.addEventListener("pointerleave", handlePointerLeave);
+      removePointerLeaveListener = () =>
+        containerEl?.removeEventListener("pointerleave", handlePointerLeave);
+
       unsubscribeWorldState = onWorldState((state) => {
         syncVisitorGraphics(app.stage, visitorGraphics, state.visitors, height);
       });
@@ -286,6 +464,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     return () => {
       cancelled = true;
       unsubscribeWorldState?.();
+      removePointerLeaveListener?.();
       if (initialized) {
         app.destroy(true, { children: true });
       }
@@ -293,19 +472,42 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   }, [sendCommand, onWorldState, onMap]);
 
   return (
-    <div className="relative h-full w-full">
+    // Toolbar buttons are real <button> elements: clicking one shifts DOM
+    // focus there (browser default on mousedown), which would silently kill
+    // the keyboard shortcuts since they only listen on the canvas container.
+    // Reclaim focus after any click inside the Park so shortcuts keep working.
+    <div
+      className="relative h-full w-full"
+      onClick={() => containerRef.current?.focus()}
+    >
       {!isConnected && (
         <div className="absolute inset-x-0 top-0 z-10 bg-destructive/90 px-3 py-1.5 text-center text-xs text-white">
           Connexion perdue — reconnexion en cours…
         </div>
       )}
-      <Toolbar
-        mode={tool.mode}
-        onModeChange={(mode) => onToolChange({ ...tool, mode })}
-      />
+      <div className="absolute right-4 top-4 z-10 flex flex-col items-center gap-1">
+        <Toolbar
+          mode={tool.mode}
+          onModeChange={(mode) => onToolChange({ ...tool, mode })}
+        />
+        <SecondaryToolbar
+          ref={rotateButtonRef}
+          mode={tool.mode}
+          onRotate={(reverse) =>
+            onToolChange({
+              ...tool,
+              rotation: nextRotation(
+                tool.rotation ?? Rotation.ROTATION_DEG_0,
+                reverse,
+              ),
+            })
+          }
+        />
+      </div>
       <div
-        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900"
+        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900 outline-none"
         ref={containerRef}
+        tabIndex={0}
       />
     </div>
   );
