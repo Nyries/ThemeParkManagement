@@ -1,13 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { RotateCcw, RotateCw } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./ui/tooltip";
-import type { ToolMode } from "@/park/tool";
+} from "../ui/tooltip";
+import type { ToolMode } from "@/types/park/tool";
 
 interface SecondaryToolbarProps {
   mode: ToolMode;

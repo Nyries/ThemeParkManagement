@@ -1,4 +1,4 @@
-import { TERRAIN_COLORS, type TerrainMaterial } from "../rendering/grid";
+import { TERRAIN_COLORS, type TerrainMaterial } from "../../rendering/grid";
 
 export interface MaterialOption {
   id: TerrainMaterial;

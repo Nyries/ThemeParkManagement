@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
-import type { SecondaryToolbarHandle } from "@/components/SecondaryToolbar";
-import type { ToolState } from "@/park/tool";
+import type { SecondaryToolbarHandle } from "@/components/park/SecondaryToolbar";
+import type { ToolState } from "@/types/park/tool";
 
 // Keyboard shortcuts: 1-4 select a tool, R/Shift+R rotate the building
 // ghost, Escape cancels the active tool. All of them must preempt the

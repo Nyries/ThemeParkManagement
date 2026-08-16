@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import type { MapResponse } from "@app/shared-types/grpc";
-import type { ToolState } from "@/park/tool";
+import type { ToolState } from "@/types/park/tool";
 import { Rotation } from "@app/shared-types";
 import { toast } from "sonner";
 
@@ -51,7 +51,7 @@ const { mockOnMap, mockOnWorldState, mockSendCommand } = vi.hoisted(() => ({
   mockSendCommand: vi.fn(),
 }));
 
-vi.mock("../../hooks/useParkSocket", () => ({
+vi.mock("../../../hooks/park/useParkSocket", () => ({
   useParkSocket: () => ({
     sendCommand: mockSendCommand,
     onWorldState: mockOnWorldState,

@@ -2,8 +2,8 @@ import { InspectorPanel } from "./InspectorPanel";
 import { LeftNav } from "./LeftNav";
 import { ParkTopBar } from "./ParkTopBar";
 import { TopBar } from "./TopBar";
-import type { SelectionInfo } from "@/park/selection";
-import type { ToolState } from "@/park/tool";
+import type { SelectionInfo } from "@/types/park/selection";
+import type { ToolState } from "@/types/park/tool";
 
 interface AppShellProps {
     children: React.ReactNode;

@@ -1,12 +1,12 @@
 import { Building2, Eraser, Mountain, Route } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./ui/tooltip";
-import type { ToolMode } from "@/park/tool";
+} from "../ui/tooltip";
+import type { ToolMode } from "@/types/park/tool";
 
 interface ToolbarProps {
   mode: ToolMode;

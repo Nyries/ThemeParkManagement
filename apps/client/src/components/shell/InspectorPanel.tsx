@@ -4,15 +4,15 @@ import {
   BUILDING_CATALOG,
   DEFAULT_BUILDING_ID,
   type BuildingCategory,
-} from "@/park/buildingCatalog";
+} from "@/lib/park/buildingCatalog";
 import {
   DEFAULT_MATERIAL_ID,
   materialColor,
   TERRAIN_MATERIALS,
   type MaterialOption,
-} from "@/park/materials";
-import type { SelectionInfo } from "@/park/selection";
-import type { ToolState } from "@/park/tool";
+} from "@/lib/park/materials";
+import type { SelectionInfo } from "@/types/park/selection";
+import type { ToolState } from "@/types/park/tool";
 
 const BUILDING_CATEGORIES: { id: BuildingCategory; label: string }[] = [
   { id: "ShopUtility", label: "Commodités" },
