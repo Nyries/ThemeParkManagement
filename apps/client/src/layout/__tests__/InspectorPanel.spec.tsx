@@ -58,4 +58,30 @@ describe("InspectorPanel", () => {
       screen.getByText("Catalogue de bâtiments — à venir"),
     ).toBeInTheDocument();
   });
+
+  it("shows instructions when the infrastructure tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "infrastructure" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText("Tracer un chemin sur le canvas"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows instructions when the remove tool is active", () => {
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "remove" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText("Cliquer un élément à retirer"),
+    ).toBeInTheDocument();
+  });
 });

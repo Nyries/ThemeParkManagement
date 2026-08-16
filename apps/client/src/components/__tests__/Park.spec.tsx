@@ -3,6 +3,10 @@ import { render, cleanup } from "@testing-library/react";
 import type { MapResponse } from "@app/shared-types/grpc";
 import type { ToolState } from "@/park/tool";
 
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
 const { mockAppInit, mockAppDestroy, mockStageAddChild } = vi.hoisted(() => ({
   mockAppInit: vi.fn(),
   mockAppDestroy: vi.fn(),
@@ -138,6 +142,161 @@ describe("Park", () => {
       expect.objectContaining({ parkId: "default" }),
     );
     expect(cell.clear).toHaveBeenCalled();
+  });
+
+  it("applies terrain to a cell when the terrain tool is active", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "terrain" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const cell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = cell.on.mock.calls[0][1];
+
+    await handleCellClick();
+
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parkId: "default",
+        command: expect.objectContaining({ $case: "applyTerrain" }),
+      }),
+    );
+    expect(cell.clear).toHaveBeenCalled();
+  });
+
+  it("places a building covering its whole footprint when the building tool is active", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 1 }); // 2x2 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+
+    render(<Park tool={{ mode: "building" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Cells are added in (y, x) order: (0,0) is the first one added.
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = originCell.on.mock.calls[0][1];
+
+    await handleCellClick();
+
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ $case: "placeBuilding" }),
+      }),
+    );
+    // sit_down_restaurant's stub footprint covers all 4 cells of this 2x2
+    // map. The first 4 addChild calls are the grid cells (Graphics), the
+    // rest are the axis labels (Text, no `.clear` method).
+    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 4)) {
+      expect(cell.clear).toHaveBeenCalled();
+    }
+  });
+
+  it("asks for confirmation and removes a building when the remove tool is used on it", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 1 }); // 2x2 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { rerender } = render(
+      <Park tool={{ mode: "building" }} onToolChange={vi.fn()} />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = originCell.on.mock.calls[0][1];
+    await handleCellClick(); // place the building first
+
+    rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
+    mockSendCommand.mockClear();
+
+    await handleCellClick(); // click the same (now built-on) cell again
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ $case: "removeBuilding" }),
+      }),
+    );
+
+    confirmSpy.mockRestore();
+  });
+
+  it("does not remove a building if the confirmation is declined", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 1 }); // 2x2 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { rerender } = render(
+      <Park tool={{ mode: "building" }} onToolChange={vi.fn()} />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = originCell.on.mock.calls[0][1];
+    await handleCellClick(); // place the building first
+
+    rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
+    mockSendCommand.mockClear();
+
+    await handleCellClick();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockSendCommand).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("removes infrastructure without confirmation when the remove tool is used on it", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    const { rerender } = render(
+      <Park tool={{ mode: "infrastructure" }} onToolChange={vi.fn()} />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const cell = mockStageAddChild.mock.calls[0][0];
+    const handleCellClick = cell.on.mock.calls[0][1];
+    await handleCellClick(); // place a path first
+
+    rerender(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
+    mockSendCommand.mockClear();
+
+    await handleCellClick(); // click the same (now built-on) cell again
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ $case: "removeInfrastructure" }),
+      }),
+    );
+
+    confirmSpy.mockRestore();
   });
 
   it("renders a visitor sprite when a world state update is received", async () => {
