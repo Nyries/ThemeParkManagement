@@ -90,6 +90,14 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     updateGhostRef.current();
   }, [tool]);
 
+  // Cells only look clickable (pointer cursor) while a tool is active —
+  // with no tool selected, clicking a cell does nothing (handleCellClick's
+  // default case), so the cursor should say so.
+  const updateCursorsRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    updateCursorsRef.current();
+  }, [tool]);
+
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
@@ -182,6 +190,17 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         () => [],
       );
       const visitorGraphics = new Map<string, Graphics>();
+
+      function updateCursors() {
+        const cursor = toolRef.current.mode ? "pointer" : "default";
+        for (const row of cellGraphics) {
+          for (const cell of row) {
+            cell.cursor = cursor;
+          }
+        }
+      }
+      updateCursorsRef.current = updateCursors;
+
       const ghost = new Graphics();
       const hoveredCellRef: { current: { x: number; y: number } | null } = {
         current: null,
@@ -275,7 +294,6 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
           .fill(getCellColor(x, y, terrain, infrastructure))
           .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-        cell.cursor = "default";
       }
 
       // Drives both a plain click and drag-tracing for Remove. A building
@@ -378,7 +396,6 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
               .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
               .fill(getCellColor(x, y, terrain, infrastructure))
               .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-            cell.cursor = "default";
             break;
           // "infrastructure" is handled by placeInfrastructureAtCell,
           // driven from pointerdown/pointerover for drag-tracing — not from
@@ -428,7 +445,6 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
                 .rect(toScreenX(cx), toScreenY(cy, height), CELL_SIZE, CELL_SIZE)
                 .fill(getCellColor(cx, cy, terrain, infrastructure, true))
                 .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-              occupiedCell.cursor = "default";
             }
             updateGhost();
             break;
@@ -463,8 +479,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           // Every cell stays interactive regardless of what's already on it —
           // handleCellClick dispatches by the *current* tool (via toolRef),
           // so an occupied cell must remain clickable to be removable later.
+          // The cursor itself is set below, once all cells exist, by
+          // updateCursors() — it depends on the active tool, not on this
+          // per-cell setup.
           cell.eventMode = "static";
-          cell.cursor = "pointer";
           cell.on("pointertap", () => handleCellClick(x, y));
           cell.on("pointerover", () => {
             hoveredCellRef.current = { x, y };
@@ -496,6 +514,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           app.stage.addChild(cell);
         }
       }
+      updateCursors();
       for (let x = 0; x < terrain[0].length; x++) {
         const label = new Text({
           text: String(x),

@@ -121,6 +121,38 @@ describe("Park", () => {
     expect(mockOnWorldState).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a default cursor on cells when no tool is active", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 0 }); // 2x1 map
+
+    render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 2)) {
+      expect(cell.cursor).toBe("default");
+    }
+  });
+
+  it("shows a pointer cursor on cells while a tool is active, and updates it when the tool changes", async () => {
+    mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 1, maxY: 0 }); // 2x1 map
+
+    const { rerender } = render(
+      <Park tool={{ mode: "terrain" }} onToolChange={vi.fn()} />,
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 2)) {
+      expect(cell.cursor).toBe("pointer");
+    }
+
+    rerender(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
+
+    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 2)) {
+      expect(cell.cursor).toBe("default");
+    }
+  });
+
   it("updates the cell's rendering after successfully placing infrastructure via a click", async () => {
     mockOnMap.mockResolvedValue({ ...emptyMap, maxX: 0, maxY: 0 }); // 1x1 map, une seule case vide
     mockSendCommand.mockResolvedValue({
