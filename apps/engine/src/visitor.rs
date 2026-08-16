@@ -2,7 +2,7 @@ use rand::Rng;
 use std::collections::HashMap;
 
 use crate::balance::{
-    AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
+    AFFINITY_DEFAULT, AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
     K_REPULSION, LANE_BIAS_STRENGTH, LATERAL_REPULSION_FACTOR, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY,
     NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE, NEED_GROWTH_FATIGUE_TIME,
     NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE, NEED_GROWTH_TOILETS_TIME,
@@ -18,10 +18,48 @@ pub const FATIGUE: &str = "fatigue";
 pub const TOILETS: &str = "toilets";
 pub const ENTERTAINMENT: &str = "entertainment";
 
-/// The jalon 2a subset of the ~13-need universal core (TPM-44) — the only needs with
-/// a building in the current catalog able to relieve them. See Wiki des Formules
-/// §Besoins et satisfaction des visiteurs.
+/// Subset of the universal need core with a building in the catalog able to relieve it.
 pub const CORE_NEEDS: [&str; 5] = [HUNGER, THIRST, FATIGUE, TOILETS, ENTERTAINMENT];
+
+/// affinité(profil, cible) factor: data, not an enum, keyed on the catalog's free-form
+/// `BuildingTemplate.tags` — an unlisted tag is just neutral (`affinity_for`).
+#[derive(Debug, Clone)]
+pub struct VisitorProfile {
+    pub name: &'static str,
+    /// Positive = preference, negative = aversion, absent = neutral.
+    pub tag_affinities: HashMap<&'static str, f32>,
+}
+
+// TODO: fixed placeholder profiles, calibrated against the catalog's current tags.
+pub fn visitor_profiles() -> Vec<VisitorProfile> {
+    vec![
+        VisitorProfile {
+            name: "Familles",
+            tag_affinities: HashMap::from([("family", 0.8), ("show", 0.3), ("thrill", -0.4)]),
+        },
+        VisitorProfile {
+            name: "Ados",
+            tag_affinities: HashMap::from([("thrill", 0.9), ("social", 0.6), ("family", -0.2)]),
+        },
+        VisitorProfile {
+            name: "Seniors",
+            tag_affinities: HashMap::from([("show", 0.7), ("family", 0.2), ("thrill", -0.6)]),
+        },
+    ]
+}
+
+/// Mean affinity across a candidate's tags, centered on `AFFINITY_DEFAULT` rather than
+/// 0 — a 0 factor would zero out `utilité × affinité` even for a strongly-wanted need.
+pub fn affinity_for(profile: &VisitorProfile, tags: &[String]) -> f32 {
+    if tags.is_empty() {
+        return AFFINITY_DEFAULT;
+    }
+    let sum: f32 = tags
+        .iter()
+        .map(|tag| profile.tag_affinities.get(tag.as_str()).copied().unwrap_or(0.0))
+        .sum();
+    AFFINITY_DEFAULT + sum / tags.len() as f32
+}
 
 #[derive(Default)]
 pub struct Visitor {
@@ -121,13 +159,7 @@ pub fn perpendicular_of(forward: (f32, f32, f32)) -> Option<(f32, f32, f32)> {
     Some((-forward.1, forward.0, 0.0))
 }
 
-/// Signed bias strength (positive = toward the `left_density` side, i.e. along
-/// `perpendicular_of(forward)`; negative = toward the `right_density` side) steering a
-/// visitor toward whichever neighbouring lane is less crowded, at up to `max_strength`.
-/// `None` density means that side isn't walkable at all — never biased toward. Both
-/// sides blocked (a genuinely 1-wide corridor) yields zero: nothing to steer into.
-/// Shared by `lane_bias_strength` (immediate neighbour, TPM-44) and `compute_detour_bias`
-/// (look-ahead along the path, TPM-182 option A) — same shape, different strength/range.
+/// Signed bias toward whichever side is less crowded; `None` density means unwalkable.
 pub(crate) fn weighted_lane_bias(
     left_density: Option<usize>,
     right_density: Option<usize>,
@@ -745,6 +777,85 @@ mod tests {
         fn test_score_for_is_zero_for_a_non_positive_cost() {
             assert_eq!(score_for(10.0, 1.0, 1.0, 0.0), 0.0);
             assert_eq!(score_for(10.0, 1.0, 1.0, -1.0), 0.0);
+        }
+    }
+
+    mod visitor_profiles {
+        use super::*;
+
+        #[test]
+        fn test_returns_exactly_the_three_jalon_2a_profiles() {
+            let profiles = visitor_profiles();
+
+            let names: Vec<&str> = profiles.iter().map(|p| p.name).collect();
+            assert_eq!(names, vec!["Familles", "Ados", "Seniors"]);
+        }
+
+        #[test]
+        fn test_affinity_for_is_neutral_with_no_tags() {
+            let profile = &visitor_profiles()[0];
+
+            let result = affinity_for(profile, &[]);
+
+            assert_eq!(result, AFFINITY_DEFAULT);
+        }
+
+        #[test]
+        fn test_affinity_for_is_neutral_for_a_tag_the_profile_has_no_opinion_on() {
+            let profile = VisitorProfile {
+                name: "test",
+                tag_affinities: HashMap::new(),
+            };
+
+            let result = affinity_for(&profile, &["unknown_tag".to_string()]);
+
+            assert_eq!(result, AFFINITY_DEFAULT);
+        }
+
+        #[test]
+        fn test_affinity_for_averages_over_several_tags() {
+            let profile = VisitorProfile {
+                name: "test",
+                tag_affinities: HashMap::from([("a", 0.4), ("b", -0.2)]),
+            };
+
+            let result = affinity_for(&profile, &["a".to_string(), "b".to_string()]);
+
+            let expected = AFFINITY_DEFAULT + (0.4 + -0.2) / 2.0;
+            assert!((result - expected).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_familles_prefer_family_tagged_attractions_over_thrill() {
+            let profile = &visitor_profiles()[0]; // Familles
+
+            let family_score = affinity_for(profile, &["family".to_string()]);
+            let thrill_score = affinity_for(profile, &["thrill".to_string()]);
+
+            assert!(family_score > AFFINITY_DEFAULT);
+            assert!(thrill_score < AFFINITY_DEFAULT);
+        }
+
+        #[test]
+        fn test_ados_prefer_thrill_tagged_attractions_over_family() {
+            let profile = &visitor_profiles()[1]; // Ados
+
+            let thrill_score = affinity_for(profile, &["thrill".to_string()]);
+            let family_score = affinity_for(profile, &["family".to_string()]);
+
+            assert!(thrill_score > AFFINITY_DEFAULT);
+            assert!(family_score < AFFINITY_DEFAULT);
+        }
+
+        #[test]
+        fn test_seniors_prefer_show_tagged_attractions_over_thrill() {
+            let profile = &visitor_profiles()[2]; // Seniors
+
+            let show_score = affinity_for(profile, &["show".to_string()]);
+            let thrill_score = affinity_for(profile, &["thrill".to_string()]);
+
+            assert!(show_score > AFFINITY_DEFAULT);
+            assert!(thrill_score < AFFINITY_DEFAULT);
         }
     }
 
