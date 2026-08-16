@@ -9,20 +9,54 @@ import {
   toScreenY,
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
-import { placeInfrastructureAt } from "../park/placeInfrastructure";
+import { useParkKeyboardShortcuts } from "../hooks/useParkKeyboardShortcuts";
+import { createGridController } from "../park/gridController";
 import { mapFromResponse } from "../park/mapFromResponse";
 import { syncVisitorGraphics } from "../park/syncVisitors";
 import type { SelectionInfo } from "../park/selection";
+import { nextRotation, type ToolState } from "../park/tool";
+import { Toolbar } from "./Toolbar";
+import { SecondaryToolbar, type SecondaryToolbarHandle } from "./SecondaryToolbar";
+import { Rotation } from "@app/shared-types";
 
 const PARK_ID = "default";
 
 interface ParkProps {
+  tool: ToolState;
+  onToolChange: (tool: ToolState) => void;
   onSelectionChange?: (selection: SelectionInfo | null) => void;
 }
 
-export function Park({ onSelectionChange }: ParkProps) {
+export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const rotateButtonRef = useRef<SecondaryToolbarHandle>(null);
   const { sendCommand, onWorldState, onMap, isConnected } = useParkSocket();
+
+  // handleCellClick lives inside the map-loading effect below, which must not
+  // re-run on every tool change (it would tear down and rebuild the whole
+  // PixiJS app). Read the current tool through this ref instead of closing
+  // over the `tool` prop directly, so clicks always see the latest tool.
+  const toolRef = useRef(tool);
+  useEffect(() => {
+    toolRef.current = tool;
+  }, [tool]);
+
+  useParkKeyboardShortcuts({ containerRef, toolRef, onToolChange, rotateButtonRef });
+
+  // The grid controller (ghost preview + cursor style) lives inside the
+  // map-loading effect too (it needs the PixiJS Graphics instances and the
+  // loaded grid data). These expose a way to trigger a redraw from outside
+  // that effect whenever the tool changes.
+  const updateGhostRef = useRef<() => void>(() => {});
+  const updateCursorsRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    updateGhostRef.current();
+    updateCursorsRef.current();
+  }, [tool]);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     // No selectable buildings/employees exist yet (TPM-149) — this only
@@ -34,35 +68,35 @@ export function Park({ onSelectionChange }: ParkProps) {
     let cancelled = false;
     let initialized = false;
     let unsubscribeWorldState: (() => void) | null = null;
+    let removePointerLeaveListener: (() => void) | null = null;
+    let removePointerUpListener: (() => void) | null = null;
     const app = new Application();
 
     onMap().then(async (mapResponse) => {
       if (cancelled) return;
 
-      const { terrain, infrastructure, width, height } = mapFromResponse(mapResponse);
+      const { terrain, infrastructure, width, height } =
+        mapFromResponse(mapResponse);
       const cellGraphics: Graphics[][] = Array.from(
         { length: terrain.length },
         () => [],
       );
       const visitorGraphics = new Map<string, Graphics>();
+      const ghost = new Graphics();
 
-      async function handleCellClick(x: number, y: number) {
-        const response = await placeInfrastructureAt(sendCommand, PARK_ID, x, y);
-        if (!response.success) {
-          console.error("Failed to place infrastructure: ", response.message);
-          return;
-        }
-
-        infrastructure[y][x] = "path";
-        const cell = cellGraphics[y][x];
-        cell.clear();
-        cell
-          .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
-          .fill(getCellColor(x, y, terrain, infrastructure))
-          .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
-        cell.eventMode = "none";
-        cell.cursor = "default";
-      }
+      const controller = createGridController({
+        parkId: PARK_ID,
+        sendCommand,
+        toolRef,
+        cellGraphics,
+        terrain,
+        infrastructure,
+        ghost,
+        width,
+        height,
+      });
+      updateGhostRef.current = controller.updateGhost;
+      updateCursorsRef.current = controller.updateCursors;
 
       await app.init({
         width: canvasWidth(width),
@@ -83,16 +117,22 @@ export function Park({ onSelectionChange }: ParkProps) {
             .fill(color)
             .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
 
-          if (infrastructure[y][x] === null) {
-            cell.eventMode = "static";
-            cell.cursor = "pointer";
-            cell.on("pointertap", () => handleCellClick(x, y));
-          }
+          // Every cell stays interactive regardless of what's already on it —
+          // handleCellClick dispatches by the *current* tool (via toolRef),
+          // so an occupied cell must remain clickable to be removable later.
+          // The cursor itself is set below, once all cells exist, by
+          // controller.updateCursors() — it depends on the active tool, not
+          // on this per-cell setup.
+          cell.eventMode = "static";
+          cell.on("pointertap", () => controller.handleCellClick(x, y));
+          cell.on("pointerover", () => controller.handlePointerOver(x, y));
+          cell.on("pointerdown", () => controller.handlePointerDown(x, y));
 
           cellGraphics[y][x] = cell;
           app.stage.addChild(cell);
         }
       }
+      controller.updateCursors();
       for (let x = 0; x < terrain[0].length; x++) {
         const label = new Text({
           text: String(x),
@@ -112,6 +152,23 @@ export function Park({ onSelectionChange }: ParkProps) {
         app.stage.addChild(label);
       }
 
+      app.stage.addChild(ghost);
+
+      const containerEl = containerRef.current;
+      containerEl?.addEventListener("pointerleave", controller.handlePointerLeave);
+      removePointerLeaveListener = () =>
+        containerEl?.removeEventListener(
+          "pointerleave",
+          controller.handlePointerLeave,
+        );
+
+      // The pointer can be released outside any cell (or outside the canvas
+      // entirely) once a drag has started, so this listens globally rather
+      // than on individual cells.
+      window.addEventListener("pointerup", controller.handlePointerUp);
+      removePointerUpListener = () =>
+        window.removeEventListener("pointerup", controller.handlePointerUp);
+
       unsubscribeWorldState = onWorldState((state) => {
         syncVisitorGraphics(app.stage, visitorGraphics, state.visitors, height);
       });
@@ -120,6 +177,8 @@ export function Park({ onSelectionChange }: ParkProps) {
     return () => {
       cancelled = true;
       unsubscribeWorldState?.();
+      removePointerLeaveListener?.();
+      removePointerUpListener?.();
       if (initialized) {
         app.destroy(true, { children: true });
       }
@@ -127,15 +186,42 @@ export function Park({ onSelectionChange }: ParkProps) {
   }, [sendCommand, onWorldState, onMap]);
 
   return (
-    <div className="relative h-full w-full">
+    // Toolbar buttons are real <button> elements: clicking one shifts DOM
+    // focus there (browser default on mousedown), which would silently kill
+    // the keyboard shortcuts since they only listen on the canvas container.
+    // Reclaim focus after any click inside the Park so shortcuts keep working.
+    <div
+      className="relative h-full w-full"
+      onClick={() => containerRef.current?.focus()}
+    >
       {!isConnected && (
         <div className="absolute inset-x-0 top-0 z-10 bg-destructive/90 px-3 py-1.5 text-center text-xs text-white">
           Connexion perdue — reconnexion en cours…
         </div>
       )}
+      <div className="absolute right-4 top-4 z-10 flex flex-col items-center gap-1">
+        <Toolbar
+          mode={tool.mode}
+          onModeChange={(mode) => onToolChange({ ...tool, mode })}
+        />
+        <SecondaryToolbar
+          ref={rotateButtonRef}
+          mode={tool.mode}
+          onRotate={(reverse) =>
+            onToolChange({
+              ...tool,
+              rotation: nextRotation(
+                tool.rotation ?? Rotation.ROTATION_DEG_0,
+                reverse,
+              ),
+            })
+          }
+        />
+      </div>
       <div
-        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900"
+        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900 outline-none"
         ref={containerRef}
+        tabIndex={0}
       />
     </div>
   );

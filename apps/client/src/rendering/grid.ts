@@ -22,6 +22,8 @@ export const INFRASTRUCTURE_COLORS: Record<InfrastructureKind, number> = {
   stairs: 0xd7b98e,
 };
 
+export const BUILDING_COLOR = 0x9c6b4f;
+
 export function toScreenY(y: number, gridHeight: number): number {
   return (gridHeight - 1 - y) * CELL_SIZE;
 }
@@ -35,7 +37,11 @@ export function getCellColor(
   y: number,
   terrain: TerrainMaterial[][],
   infrastructure: (InfrastructureKind | null)[][],
+  hasBuilding = false,
 ): number {
+  if (hasBuilding) {
+    return BUILDING_COLOR;
+  }
   const infra = infrastructure[y][x];
   if (infra !== null) {
     return INFRASTRUCTURE_COLORS[infra];
