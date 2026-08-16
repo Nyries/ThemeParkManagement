@@ -101,6 +101,9 @@ pub struct Visitor {
     pub last_visited: HashMap<(i32, i32, i32), u64>,
     /// Consecutive near-zero-movement ticks despite nonzero speed (head-on standoff).
     pub stall_ticks: u64,
+    /// `Some(attraction_building_id)` while waiting in that attraction's queue — governed
+    /// by continuous FIFO advancement (`queue::QueueState`) instead of `path`/A*.
+    pub queue_attraction: Option<String>,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {

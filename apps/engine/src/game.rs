@@ -7,11 +7,11 @@ use crate::{
         AFFINITY_DEFAULT, COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, DETOUR_BIAS_STRENGTH,
         DETOUR_DENSITY_THRESHOLD, DETOUR_LOOKAHEAD_CELLS, ENTERTAINMENT_RELIEF,
         SPAWN_INTERVAL_TICKS, STALL_DISTANCE_EPSILON, STALL_TICKS_THRESHOLD,
-        UNSTALL_IMPULSE_MAGNITUDE,
+        UNSTALL_IMPULSE_MAGNITUDE, VISITOR_RADIUS,
     },
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
     map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
-    queue::QueueState,
+    queue::{QueueState, advance_toward},
     visitor::{
         ENTERTAINMENT, Visitor, VisitorId, affinity_for, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
@@ -109,6 +109,21 @@ impl GameWorld {
             let old_cell = cell_of(v.position);
             let position_before_advance = v.position;
 
+            if let Some(attraction_id) = v.queue_attraction.clone() {
+                let moved = advance_visitor_in_queue(v, &self.queues, &attraction_id, dt);
+                update_needs_and_satisfaction(v, moved);
+
+                let new_cell = cell_of(v.position);
+                update_density_and_dirty_chunks(
+                    &mut self.density,
+                    &mut self.dirty_chunks,
+                    &v.id,
+                    old_cell,
+                    new_cell,
+                );
+                continue;
+            }
+
             redirect_if_expired(v, &self.park_map, old_cell, exit);
             redirect_if_leaving_early(v, &self.park_map, old_cell, exit);
             assign_new_target_if_arrived(
@@ -196,6 +211,25 @@ impl GameWorld {
             .entry(attraction_building_id.to_string())
             .or_default()
             .chain = chain;
+    }
+
+    /// Moves a visitor from normal pathfinding-driven movement into an attraction's
+    /// queue — false (no-op) if the queue is already full. The caller is expected to
+    /// have already checked the visitor is at the chain's tail (queue entrance); the
+    /// trigger for that lives with target resolution (TPM-156), not here.
+    pub fn try_join_queue(&mut self, visitor_id: &str, attraction_building_id: &str) -> bool {
+        let diameter = visitor_diameter();
+        let queue = self.queues.entry(attraction_building_id.to_string()).or_default();
+        if queue.is_full(diameter) {
+            return false;
+        }
+        queue.occupants.push_back(visitor_id.to_string());
+
+        if let Some(v) = self.visitors.iter_mut().find(|v| v.id == visitor_id) {
+            v.queue_attraction = Some(attraction_building_id.to_string());
+            v.path.clear();
+        }
+        true
     }
 }
 
@@ -445,6 +479,35 @@ fn recompute_path_if_blocked(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32
     {
         v.path = park_map.path_excluding_start(old_cell, v.target);
     }
+}
+
+fn visitor_diameter() -> f32 {
+    2.0 * VISITOR_RADIUS
+}
+
+/// Moves a queued visitor toward its FIFO slot along the cached chain — continuous,
+/// capped by the same speed as walking a plain path, never A*. Returns distance moved.
+fn advance_visitor_in_queue(
+    v: &mut Visitor,
+    queues: &HashMap<String, QueueState>,
+    attraction_id: &str,
+    dt: f32,
+) -> f32 {
+    let Some(queue) = queues.get(attraction_id) else {
+        return 0.0;
+    };
+    let Some(index) = queue.occupants.iter().position(|id| id == &v.id) else {
+        return 0.0;
+    };
+    let Some(target) = queue.target_position(index, visitor_diameter()) else {
+        return 0.0;
+    };
+
+    let before = v.position;
+    // Same base speed as a plain path (Queue's own base_speed_for arm matches it).
+    let max_step = base_speed_for(&crate::map::InfrastructureShape::Path) * dt;
+    v.position = advance_toward(v.position, target, max_step);
+    distance_moved(before, v.position)
 }
 
 fn local_density_at(
@@ -2376,6 +2439,90 @@ mod tests {
             world.sync_queue_chain("coaster");
 
             assert_eq!(world.queues["coaster"].occupants, vec!["v1".to_string()]);
+        }
+    }
+
+    mod try_join_queue {
+        use super::*;
+
+        fn visitor_at(id: &str, position: (f32, f32, f32)) -> Visitor {
+            Visitor {
+                id: id.into(),
+                position,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_adds_the_visitor_to_occupants_and_marks_them_as_queued() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0), (10, 0, 0)],
+                    occupants: Default::default(),
+                },
+            );
+            world.visitors.push(visitor_at("a", (10.0, 0.0, 0.0)));
+            world.visitors[0].path = vec![(5, 5, 0)];
+
+            let joined = world.try_join_queue("a", "coaster");
+
+            assert!(joined);
+            assert_eq!(world.queues["coaster"].occupants, vec!["a".to_string()]);
+            assert_eq!(world.visitors[0].queue_attraction, Some("coaster".to_string()));
+            assert!(world.visitors[0].path.is_empty());
+        }
+
+        #[test]
+        fn test_refuses_when_the_queue_is_already_full() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0)], // capacity 1 at any diameter
+                    occupants: vec!["existing".to_string()].into(),
+                },
+            );
+            world.visitors.push(visitor_at("a", (0.0, 0.0, 0.0)));
+
+            let joined = world.try_join_queue("a", "coaster");
+
+            assert!(!joined);
+            assert_eq!(world.queues["coaster"].occupants.len(), 1);
+            assert_eq!(world.visitors[0].queue_attraction, None);
+        }
+    }
+
+    mod tick_queue_advancement {
+        use super::*;
+
+        #[test]
+        fn test_a_queued_visitor_advances_toward_its_slot_instead_of_following_a_path() {
+            let mut world = GameWorld::new();
+            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![(0, 0, 0), (1, 0, 0)],
+                    occupants: vec!["a".to_string()].into(),
+                },
+            );
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (1.0, 0.0, 0.0),
+                path: vec![(5, 5, 0)], // stale — must be ignored while queued
+                target: (9, 9, 0),      // stale — must stay untouched while queued
+                queue_attraction: Some("coaster".to_string()),
+                ..Default::default()
+            });
+
+            world.tick(1.0); // large dt: should reach the front-of-queue slot (index 0)
+
+            let visitor = &world.visitors[0];
+            assert_eq!(visitor.position, (0.0, 0.0, 0.0));
+            assert_eq!(visitor.target, (9, 9, 0)); // never went through assign_new_target_if_arrived
         }
     }
 }
