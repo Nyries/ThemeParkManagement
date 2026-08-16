@@ -12,7 +12,7 @@ use crate::{
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
     map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
     visitor::{
-        ENTERTAINMENT, Visitor, VisitorId, gain_for, grow_needs, lane_bias_strength,
+        ENTERTAINMENT, Visitor, VisitorId, affinity_for, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
         repulsion_force, score_for, speed_at, update_satisfaction, utility_for, weighted_lane_bias,
     },
@@ -367,7 +367,6 @@ fn relieve_needs_at_arrival(
 
 /// Picks the reachable cell with the best destination score. Only strictly positive
 /// scores count — a cell with no relevant building never outscores wandering.
-// TODO: affinité is fixed neutral until per-profile affinity is wired in.
 fn best_destination(
     v: &Visitor,
     park_map: &ParkMap,
@@ -381,14 +380,16 @@ fn best_destination(
         .filter(|&&cell| cell != old_cell)
         .filter_map(|&cell| {
             let (_, cost) = park_map.find_path(old_cell, cell)?;
-            let needs_relief = adjacent_building(park_map, cell)
-                .and_then(|building| catalog.get(&building.template_id))
-                .map(|template| &template.needs_relief);
-            let utility = needs_relief
-                .map(|relief| utility_for(&v.needs, relief))
+            let template = adjacent_building(park_map, cell)
+                .and_then(|building| catalog.get(&building.template_id));
+            let utility = template
+                .map(|template| utility_for(&v.needs, &template.needs_relief))
                 .unwrap_or(0.0);
+            let affinity = template
+                .map(|template| affinity_for(&v.profile, &template.tags))
+                .unwrap_or(AFFINITY_DEFAULT);
             let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
-            let score = score_for(utility, AFFINITY_DEFAULT, novelty, cost as f32);
+            let score = score_for(utility, affinity, novelty, cost as f32);
             Some((cell, score))
         })
         .filter(|&(_, score)| score > 0.0)
@@ -1643,6 +1644,80 @@ mod tests {
                 }"#,
             ))
             .unwrap()
+        }
+
+        fn catalog_with_thrill_and_family_rides() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "thrill_ride",
+                            "name": "Thrill Ride",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "short_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": { "hunger": 10 },
+                            "tags": ["thrill"]
+                        },
+                        {
+                            "template_id": "family_ride",
+                            "name": "Family Ride",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "short_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": { "hunger": 10 },
+                            "tags": ["family"]
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
+        #[test]
+        fn test_prefers_the_building_matching_the_visitors_profile_affinity_when_utility_and_cost_are_equal() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // adjacent to family_ride
+            park_map.set_infrastructure(-1, 0, 0, InfrastructureShape::Path); // adjacent to thrill_ride
+            park_map.set_building(
+                2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "family".into(),
+                    template_id: "family_ride".into(),
+                },
+            );
+            park_map.set_building(
+                -2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "thrill".into(),
+                    template_id: "thrill_ride".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0);
+            v.profile = crate::visitor::visitor_profiles()
+                .into_iter()
+                .find(|p| p.name == "Ados")
+                .unwrap();
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_thrill_and_family_rides(),
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.target, (-1, 0, 0)); // Ados: thrill affinity beats family affinity
         }
 
         #[test]
