@@ -1,10 +1,28 @@
+use rand::Rng;
+use std::collections::HashMap;
+
 use crate::balance::{
-    AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, LATERAL_REPULSION_FACTOR, STEERING_FACTOR,
-    VISIT_DURATION_TICKS,
+    AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
+    K_REPULSION, LATERAL_REPULSION_FACTOR, NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE,
+    NEED_GROWTH_FATIGUE_TIME, NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE,
+    NEED_GROWTH_TOILETS_TIME, SATISFACTION_PENALTY_EXPONENT, SATISFACTION_RECENCY_WEIGHT,
+    STEERING_FACTOR, VISIT_DURATION_TICKS,
 };
 
 pub type VisitorId = String;
 
+pub const HUNGER: &str = "hunger";
+pub const THIRST: &str = "thirst";
+pub const FATIGUE: &str = "fatigue";
+pub const TOILETS: &str = "toilets";
+pub const ENTERTAINMENT: &str = "entertainment";
+
+/// The jalon 2a subset of the ~13-need universal core (TPM-44) — the only needs with
+/// a building in the current catalog able to relieve them. See Wiki des Formules
+/// §Besoins et satisfaction des visiteurs.
+pub const CORE_NEEDS: [&str; 5] = [HUNGER, THIRST, FATIGUE, TOILETS, ENTERTAINMENT];
+
+#[derive(Default)]
 pub struct Visitor {
     pub id: VisitorId,
     pub position: (f32, f32, f32),
@@ -13,6 +31,12 @@ pub struct Visitor {
     pub ticks_since_spawn: u64,
     pub heading: (f32, f32, f32),
     pub is_leaving: bool,
+    /// Level per need, 0-100, grows over time/distance and is relieved by buildings.
+    pub needs: HashMap<String, f32>,
+    /// Individual comfort threshold per need, drawn at spawn (see `Visitor::new`).
+    pub comfort_thresholds: HashMap<String, f32>,
+    /// Cumulative satisfaction, exponential moving average of (gain - penalty). 0 = neutral.
+    pub satisfaction: f32,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -98,9 +122,86 @@ pub fn repulsion_force(
     (intensity * dx, intensity * dy, intensity * dz)
 }
 
+/// Growth per tick for each core need, driven by time and/or distance moved this tick.
+/// See Wiki des Formules §Besoins et satisfaction des visiteurs.
+pub fn grow_needs(needs: &mut HashMap<String, f32>, distance_moved: f32) {
+    *needs.entry(HUNGER.to_string()).or_insert(0.0) += NEED_GROWTH_HUNGER;
+    *needs.entry(THIRST.to_string()).or_insert(0.0) += NEED_GROWTH_THIRST;
+    *needs.entry(TOILETS.to_string()).or_insert(0.0) +=
+        NEED_GROWTH_TOILETS_TIME + NEED_GROWTH_TOILETS_DISTANCE * distance_moved;
+    *needs.entry(FATIGUE.to_string()).or_insert(0.0) +=
+        NEED_GROWTH_FATIGUE_TIME + NEED_GROWTH_FATIGUE_DISTANCE * distance_moved;
+    *needs.entry(ENTERTAINMENT.to_string()).or_insert(0.0) += NEED_GROWTH_ENTERTAINMENT;
+}
+
+/// Relieves a single need by `amount`, floored at 0. No-op if the need is untracked.
+pub fn relieve_need(needs: &mut HashMap<String, f32>, need: &str, amount: f32) {
+    if let Some(level) = needs.get_mut(need) {
+        *level = (*level - amount).max(0.0);
+    }
+}
+
+/// Convex penalty: 0 while the need stays under its comfort threshold, growing sharply
+/// past it. `penalty(need) = weight * ((threshold - level) / threshold)^p`, weight = 1.0
+/// uniformly across needs for now (per-need weighting deferred to a later calibration).
+pub fn penalty_for(level: f32, threshold: f32) -> f32 {
+    if threshold <= 0.0 || level >= threshold {
+        return 0.0;
+    }
+    ((threshold - level) / threshold).powf(SATISFACTION_PENALTY_EXPONENT)
+}
+
+/// Gain granted when a need is relieved, proportional to the relief's intensity and to
+/// how urgent the need was right before being relieved (0 if it was already comfortable).
+pub fn gain_for(relief_intensity: f32, level_before_relief: f32, threshold: f32) -> f32 {
+    let urgency = if threshold <= 0.0 {
+        0.0
+    } else {
+        ((threshold - level_before_relief) / threshold).max(0.0)
+    };
+    relief_intensity * urgency
+}
+
+/// Rolls a single tick's (gain - penalty) into the cumulative satisfaction, as an
+/// exponential moving average — `SATISFACTION_RECENCY_WEIGHT` controls how much weight
+/// recent ticks carry over the visit's history.
+pub fn update_satisfaction(current: f32, gain: f32, penalty: f32) -> f32 {
+    current * (1.0 - SATISFACTION_RECENCY_WEIGHT) + (gain - penalty) * SATISFACTION_RECENCY_WEIGHT
+}
+
 impl Visitor {
+    /// Builds a freshly spawned visitor at `position`, with all core needs at 0 and
+    /// individually-drawn comfort thresholds. Callers still need to set `path`/`target`
+    /// themselves (this constructor has no map access to compute them).
+    pub fn new(id: VisitorId, position: (f32, f32, f32)) -> Self {
+        let mut rng = rand::thread_rng();
+        let comfort_thresholds = CORE_NEEDS
+            .iter()
+            .map(|&need| {
+                let jitter = rng.gen_range(-COMFORT_THRESHOLD_VARIANCE..=COMFORT_THRESHOLD_VARIANCE);
+                (need.to_string(), COMFORT_THRESHOLD_DEFAULT + jitter)
+            })
+            .collect();
+        let needs = CORE_NEEDS.iter().map(|&need| (need.to_string(), 0.0)).collect();
+
+        Self {
+            id,
+            position,
+            needs,
+            comfort_thresholds,
+            ..Default::default()
+        }
+    }
+
     pub fn has_expired(&self) -> bool {
         self.ticks_since_spawn >= VISIT_DURATION_TICKS
+    }
+
+    /// True once cumulative satisfaction has collapsed net (see
+    /// `EARLY_DEPARTURE_SATISFACTION_THRESHOLD`) — stricter than the ordinary per-need
+    /// penalty so a visitor doesn't bail at the first uncomfortable need.
+    pub fn should_leave_early(&self) -> bool {
+        self.satisfaction < crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD
     }
 
     pub fn advance(&mut self, speed: f32, dt: f32, repulsion: (f32, f32, f32)) {
@@ -185,6 +286,152 @@ mod tests {
         assert_eq!(result, expected);
     }
 
+    mod needs_and_satisfaction {
+        use super::*;
+
+        #[test]
+        fn test_new_sets_all_core_needs_to_zero() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            for need in CORE_NEEDS {
+                assert_eq!(visitor.needs.get(need), Some(&0.0));
+            }
+        }
+
+        #[test]
+        fn test_new_draws_comfort_thresholds_within_the_expected_range() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            for need in CORE_NEEDS {
+                let threshold = *visitor.comfort_thresholds.get(need).unwrap();
+                assert!(
+                    (COMFORT_THRESHOLD_DEFAULT - COMFORT_THRESHOLD_VARIANCE..=COMFORT_THRESHOLD_DEFAULT + COMFORT_THRESHOLD_VARIANCE)
+                        .contains(&threshold),
+                    "{need} threshold {threshold} out of range"
+                );
+            }
+        }
+
+        #[test]
+        fn test_new_starts_with_neutral_satisfaction_and_not_leaving() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            assert_eq!(visitor.satisfaction, 0.0);
+            assert!(!visitor.is_leaving);
+        }
+
+        #[test]
+        fn test_grow_needs_increases_every_core_need() {
+            let mut needs = HashMap::new();
+
+            grow_needs(&mut needs, 0.0);
+
+            for need in CORE_NEEDS {
+                assert!(needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_grow_needs_distance_only_affects_toilets_and_fatigue() {
+            let mut still = HashMap::new();
+            grow_needs(&mut still, 0.0);
+
+            let mut moved = HashMap::new();
+            grow_needs(&mut moved, 10.0);
+
+            assert_eq!(still[HUNGER], moved[HUNGER]);
+            assert_eq!(still[THIRST], moved[THIRST]);
+            assert_eq!(still[ENTERTAINMENT], moved[ENTERTAINMENT]);
+            assert!(moved[TOILETS] > still[TOILETS]);
+            assert!(moved[FATIGUE] > still[FATIGUE]);
+        }
+
+        #[test]
+        fn test_relieve_need_lowers_level_floored_at_zero() {
+            let mut needs = HashMap::from([(HUNGER.to_string(), 20.0)]);
+
+            relieve_need(&mut needs, HUNGER, 35.0);
+
+            assert_eq!(needs[HUNGER], 0.0);
+        }
+
+        #[test]
+        fn test_relieve_need_is_a_noop_for_an_untracked_need() {
+            let mut needs = HashMap::new();
+
+            relieve_need(&mut needs, HUNGER, 20.0);
+
+            assert!(needs.is_empty());
+        }
+
+        #[test]
+        fn test_penalty_for_is_zero_at_or_above_threshold() {
+            assert_eq!(penalty_for(70.0, 70.0), 0.0);
+            assert_eq!(penalty_for(90.0, 70.0), 0.0);
+        }
+
+        #[test]
+        fn test_penalty_for_grows_convexly_below_threshold() {
+            let small_deficit = penalty_for(60.0, 70.0); // (10/70)^2
+            let large_deficit = penalty_for(20.0, 70.0); // (50/70)^2
+
+            assert!(small_deficit > 0.0);
+            assert!(large_deficit > small_deficit);
+            let expected_small = (10.0_f32 / 70.0).powf(SATISFACTION_PENALTY_EXPONENT);
+            assert!((small_deficit - expected_small).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_gain_for_is_zero_when_need_was_already_comfortable() {
+            let gain = gain_for(20.0, 80.0, 70.0); // level_before >= threshold
+
+            assert_eq!(gain, 0.0);
+        }
+
+        #[test]
+        fn test_gain_for_scales_with_intensity_and_urgency() {
+            let low_urgency = gain_for(20.0, 60.0, 70.0); // urgency = 10/70
+            let high_urgency = gain_for(20.0, 10.0, 70.0); // urgency = 60/70
+
+            assert!(high_urgency > low_urgency);
+            assert!(low_urgency > 0.0);
+        }
+
+        #[test]
+        fn test_update_satisfaction_moves_toward_the_new_signal() {
+            let after_gain = update_satisfaction(0.0, 10.0, 0.0);
+            let after_penalty = update_satisfaction(0.0, 0.0, 10.0);
+
+            assert!(after_gain > 0.0);
+            assert!(after_penalty < 0.0);
+        }
+
+        #[test]
+        fn test_update_satisfaction_weighs_recent_signal_by_recency_weight() {
+            let expected = 0.0 * (1.0 - SATISFACTION_RECENCY_WEIGHT) + 5.0 * SATISFACTION_RECENCY_WEIGHT;
+
+            let result = update_satisfaction(0.0, 5.0, 0.0);
+
+            assert!((result - expected).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_should_leave_early_is_false_above_the_threshold() {
+            let mut visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+            visitor.satisfaction = -10.0;
+
+            assert!(!visitor.should_leave_early());
+        }
+
+        #[test]
+        fn test_should_leave_early_is_true_below_the_threshold() {
+            let mut visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+            visitor.satisfaction = -60.0;
+
+            assert!(visitor.should_leave_early());
+        }
+    }
+
     fn assert_close(actual: (f32, f32, f32), expected: (f32, f32, f32)) {
         const EPSILON: f32 = 1e-5;
         assert!(
@@ -244,6 +491,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS - 1,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(!visitor.has_expired());
@@ -259,6 +507,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(visitor.has_expired());
@@ -274,6 +523,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS + 500,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(visitor.has_expired());
@@ -293,6 +543,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
@@ -311,6 +562,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
@@ -329,6 +581,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
@@ -347,6 +600,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
@@ -365,6 +619,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
@@ -383,6 +638,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -399,6 +655,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -424,6 +681,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
@@ -446,6 +704,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
@@ -467,6 +726,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             let speed = 1.0;
@@ -492,6 +752,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             // Several neighbors packed close together can sum to a repulsion far larger than

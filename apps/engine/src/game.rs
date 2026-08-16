@@ -133,15 +133,13 @@ impl GameWorld {
 
         let id = uuid::Uuid::new_v4().to_string();
 
-        self.visitors.push(Visitor {
-            id: id.clone(),
-            position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32),
-            path,
-            target,
-            ticks_since_spawn: 0,
-            heading: (0.0, 0.0, 0.0),
-            is_leaving: false,
-        });
+        let mut visitor = Visitor::new(
+            id.clone(),
+            (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32),
+        );
+        visitor.path = path;
+        visitor.target = target;
+        self.visitors.push(visitor);
 
         self.density.entry(entrance).or_default().push(id);
     }
@@ -434,6 +432,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             lone_world.density.insert((0, 0, 0), vec!["lone".into()]);
 
@@ -449,6 +448,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             // v1/v2/v3 n'existent que dans le seau de densité, pas dans self.visitors :
             // ça isole l'effet de densité sur la vitesse sans bruit de répulsion (positions inconnues -> ignorées).
@@ -484,6 +484,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world.visitors.push(Visitor {
                 id: "b".into(),
@@ -493,6 +494,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world
                 .density
@@ -521,6 +523,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.tick(1.0);
@@ -580,6 +583,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.park_map.remove_infrasture(1, 0, 0); // simule une modification de carte
@@ -616,6 +620,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.park_map.remove_infrasture(1, 0, 0);
@@ -660,6 +665,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.tick(0.01);
@@ -683,7 +689,8 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
-                is_leaving: true, // était déjà en train de partir
+                is_leaving: true, // was already leaving
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -732,6 +739,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.tick(0.01);
@@ -759,6 +767,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: true,
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -782,6 +791,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -854,6 +864,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -906,6 +917,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -971,6 +983,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -1162,6 +1175,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -1186,6 +1200,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.reset_visitors();
