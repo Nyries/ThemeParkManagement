@@ -1,7 +1,7 @@
 use engine::balance::TICK_INTERVAL;
 use engine::game::GameWorld;
-use engine::service::SimulationEngineService;
 use engine::map_template::{MapSource, MapTemplate};
+use engine::service::SimulationEngineService;
 use engine::simulation::simulation_service_server::SimulationServiceServer;
 use engine::simulation::{VisitorState, WorldStateResponse};
 
@@ -15,7 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting the simulation engine!");
 
     // Loading park_map
-    let template = MapTemplate::load(MapSource::Embedded(include_str!("../assets/maps/map-tpm-41.json")))?;
+    let template = MapTemplate::load(MapSource::Embedded(include_str!(
+        "../assets/maps/map-tpm-41.json"
+    )))?;
     let park_map = template.into_park_map()?;
 
     let mut world = GameWorld::new();
@@ -41,18 +43,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 current_tick = w.tick_count;
                 balance = w.balance;
 
-                visitors = w.visitors.iter().map(|v| VisitorState {
-                    id: v.id.clone(),
-                    x: v.position.0,
-                    y: v.position.1,
-                    z: v.position.2,
-                }).collect();
-        
+                visitors = w
+                    .visitors
+                    .iter()
+                    .map(|v| VisitorState {
+                        id: v.id.clone(),
+                        x: v.position.0,
+                        y: v.position.1,
+                        z: v.position.2,
+                    })
+                    .collect();
+
                 if !w.paused && current_tick % 100 == 0 {
                     println!("Tick de simulation en cours... Actuel: {}", current_tick);
                 }
             }
-        
+
             let _ = broadcaster.send(WorldStateResponse {
                 tick_count: current_tick,
                 dirty_chunks_json: "{}".into(),
@@ -62,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let elapsed = start.elapsed();
             if elapsed < tick_interval {
-                sleep(tick_interval-elapsed).await;
+                sleep(tick_interval - elapsed).await;
             }
         }
     });
@@ -71,14 +77,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         use tokio::io::{AsyncBufReadExt, BufReader};
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        println!("Dev commands: pause | resume | reset | funds <amount>");
+        println!("Dev commands: pause | resume | reset {{visitors | map }} | funds <amount>");
         while let Ok(Some(line)) = lines.next_line().await {
             let mut w = world_clone_stdin.lock().unwrap();
             let mut parts = line.split_whitespace();
             match parts.next() {
-                Some("pause") => { w.paused = true; println!("Simulation paused."); }
-                Some("resume") => { w.paused = false; println!("Simulation resumed."); }
-                Some("reset") => { w.reset_visitors(); println!("Visitors reset."); }
+                Some("pause") => {
+                    w.paused = true;
+                    println!("Simulation paused.");
+                }
+                Some("resume") => {
+                    w.paused = false;
+                    println!("Simulation resumed.");
+                }
+                Some("reset") => match parts.next() {
+                    Some("visitors") => {
+                        w.reset_visitors();
+                        println!("Visitors reset.");
+                    }
+                    Some("map") => {
+                        let template = MapTemplate::load(MapSource::Embedded(include_str!(
+                            "../assets/maps/map-tpm-41.json"
+                        )));
+                        let park_map = template.unwrap().into_park_map();
+                        w.park_map = park_map.unwrap();
+                        println!("Map reset.")
+                    }
+                    None | _ => println!("Use either visitors or map."),
+                },
                 Some("funds") => match parts.next() {
                     None => println!("Current balance: {}", w.balance),
                     Some(amount_str) => match amount_str.parse::<f64>() {
@@ -96,21 +122,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let addr = "0.0.0.0:50051".parse()?;
-    let service = SimulationEngineService {world, state_sender};
+    let service = SimulationEngineService {
+        world,
+        state_sender,
+    };
 
     println!("gRPC server of the engine started on port 50051");
 
     Server::builder()
-    .add_service(SimulationServiceServer::new(service))
-    .serve(addr)
-    .await?;
+        .add_service(SimulationServiceServer::new(service))
+        .serve(addr)
+        .await?;
 
     Ok(())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-
-// }
