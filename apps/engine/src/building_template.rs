@@ -103,7 +103,7 @@ pub struct BuildingTemplate {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     mod load {
