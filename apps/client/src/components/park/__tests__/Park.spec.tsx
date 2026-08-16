@@ -119,7 +119,9 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(mockOnWorldState).toHaveBeenCalledTimes(1);
+    // One subscription feeds the top bar (balance/visitor count) from mount,
+    // the other syncs visitor sprites once the map has loaded.
+    expect(mockOnWorldState).toHaveBeenCalledTimes(2);
   });
 
   it("shows a default cursor on cells when no tool is active", async () => {
@@ -912,7 +914,11 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    const onWorldStateCallback = mockOnWorldState.mock.calls[0]![0]!;
+    // The visitor-sync subscription is registered after the map loads, so it
+    // is the last of the two onWorldState subscriptions (the other feeds the
+    // top bar from mount).
+    const lastCallIndex = mockOnWorldState.mock.calls.length - 1;
+    const onWorldStateCallback = mockOnWorldState.mock.calls[lastCallIndex]![0]!;
     const addChildCallsBefore = mockStageAddChild.mock.calls.length;
 
     onWorldStateCallback({
@@ -924,5 +930,29 @@ describe("Park", () => {
     expect(mockStageAddChild.mock.calls.length).toBeGreaterThan(
       addChildCallsBefore,
     );
+  });
+
+  it("updates the top bar balance and visitor count from world state updates", async () => {
+    mockOnMap.mockReturnValue(new Promise(() => {})); // never resolves: not relevant to this test
+
+    const { getByText } = render(
+      <Park tool={NO_TOOL} onToolChange={vi.fn()} />,
+    );
+
+    const onWorldStateCallback = mockOnWorldState.mock.calls[0]![0]!;
+    act(() => {
+      onWorldStateCallback({
+        tickCount: 1,
+        dirtyChunksJson: "{}",
+        visitors: [
+          { id: "v1", x: 0, y: 0, z: 0 },
+          { id: "v2", x: 1, y: 0, z: 0 },
+        ],
+        balance: 2500,
+      });
+    });
+
+    expect(getByText("2 500 €")).toBeInTheDocument();
+    expect(getByText("2 visiteurs")).toBeInTheDocument();
   });
 });

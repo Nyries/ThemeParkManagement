@@ -1,6 +1,5 @@
 import { InspectorPanel } from "./InspectorPanel";
 import { LeftNav } from "./LeftNav";
-import { ParkTopBar } from "./ParkTopBar";
 import { TopBar } from "./TopBar";
 import type { SelectionInfo } from "@/types/park/selection";
 import type { ToolState } from "@/types/park/tool";
@@ -19,7 +18,6 @@ export function AppShell({ children, selection, tool, onToolChange }: AppShellPr
             <div className="flex flex-1 min-h-0">
                 <LeftNav />
                 <div className="flex-1 flex flex-col min-w-0">
-                    <ParkTopBar />
                     <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
                 </div>
                 <InspectorPanel selection={selection} tool={tool} onToolChange={onToolChange} />

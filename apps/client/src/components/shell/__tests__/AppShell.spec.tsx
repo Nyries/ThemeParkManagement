@@ -17,7 +17,6 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByText("Park Horizon")).toBeInTheDocument();
-    expect(screen.getByText("Prairie Meadows")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /parc/i })).toBeInTheDocument();
     expect(screen.getByText("Aucune sélection")).toBeInTheDocument();
     expect(screen.getByText("Park canvas")).toBeInTheDocument();

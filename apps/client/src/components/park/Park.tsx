@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Application, Graphics, Text } from "pixi.js";
 import {
   canvasHeight,
@@ -17,6 +17,7 @@ import type { SelectionInfo } from "../../types/park/selection";
 import { nextRotation, type ToolState } from "../../types/park/tool";
 import { Toolbar } from "./Toolbar";
 import { SecondaryToolbar, type SecondaryToolbarHandle } from "./SecondaryToolbar";
+import { ParkTopBar } from "../shell/ParkTopBar";
 import { Rotation } from "@app/shared-types";
 
 const PARK_ID = "default";
@@ -31,6 +32,8 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rotateButtonRef = useRef<SecondaryToolbarHandle>(null);
   const { sendCommand, onWorldState, onMap, isConnected } = useParkSocket();
+  const [balance, setBalance] = useState(0);
+  const [visitorCount, setVisitorCount] = useState(0);
 
   // handleCellClick lives inside the map-loading effect below, which must not
   // re-run on every tool change (it would tear down and rebuild the whole
@@ -57,6 +60,13 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    return onWorldState((state) => {
+      setBalance(state.balance);
+      setVisitorCount(state.visitors.length);
+    });
+  }, [onWorldState]);
 
   useEffect(() => {
     // No selectable buildings/employees exist yet (TPM-149) — this only
@@ -193,43 +203,46 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
   }, [sendCommand, onWorldState, onMap]);
 
   return (
-    // Toolbar buttons are real <button> elements: clicking one shifts DOM
-    // focus there (browser default on mousedown), which would silently kill
-    // the keyboard shortcuts since they only listen on the canvas container.
-    // Reclaim focus after any click inside the Park so shortcuts keep working.
-    <div
-      className="relative h-full w-full"
-      onClick={() => containerRef.current?.focus()}
-    >
-      {!isConnected && (
-        <div className="absolute inset-x-0 top-0 z-10 bg-destructive/90 px-3 py-1.5 text-center text-xs text-white">
-          Connexion perdue — reconnexion en cours…
+    <div className="flex h-full w-full flex-col">
+      <ParkTopBar balance={balance} visitorCount={visitorCount} />
+      {/* Toolbar buttons are real <button> elements: clicking one shifts DOM
+      focus there (browser default on mousedown), which would silently kill
+      the keyboard shortcuts since they only listen on the canvas container.
+      Reclaim focus after any click inside the Park so shortcuts keep working. */}
+      <div
+        className="relative min-h-0 flex-1"
+        onClick={() => containerRef.current?.focus()}
+      >
+        {!isConnected && (
+          <div className="absolute inset-x-0 top-0 z-10 bg-destructive/90 px-3 py-1.5 text-center text-xs text-white">
+            Connexion perdue — reconnexion en cours…
+          </div>
+        )}
+        <div className="absolute right-4 top-4 z-10 flex flex-col items-center gap-1">
+          <Toolbar
+            mode={tool.mode}
+            onModeChange={(mode) => onToolChange({ ...tool, mode })}
+          />
+          <SecondaryToolbar
+            ref={rotateButtonRef}
+            mode={tool.mode}
+            onRotate={(reverse) =>
+              onToolChange({
+                ...tool,
+                rotation: nextRotation(
+                  tool.rotation ?? Rotation.ROTATION_DEG_0,
+                  reverse,
+                ),
+              })
+            }
+          />
         </div>
-      )}
-      <div className="absolute right-4 top-4 z-10 flex flex-col items-center gap-1">
-        <Toolbar
-          mode={tool.mode}
-          onModeChange={(mode) => onToolChange({ ...tool, mode })}
-        />
-        <SecondaryToolbar
-          ref={rotateButtonRef}
-          mode={tool.mode}
-          onRotate={(reverse) =>
-            onToolChange({
-              ...tool,
-              rotation: nextRotation(
-                tool.rotation ?? Rotation.ROTATION_DEG_0,
-                reverse,
-              ),
-            })
-          }
+        <div
+          className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900 outline-none"
+          ref={containerRef}
+          tabIndex={0}
         />
       </div>
-      <div
-        className="flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900 outline-none"
-        ref={containerRef}
-        tabIndex={0}
-      />
     </div>
   );
 }
