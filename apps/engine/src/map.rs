@@ -14,6 +14,9 @@ pub(crate) fn movement_cost_for(shape: &InfrastructureShape) -> u32 {
         InfrastructureShape::Path => MOVEMENT_COST_PATH,
         InfrastructureShape::Ramp { .. } => MOVEMENT_COST_RAMP,
         InfrastructureShape::Stairs { .. } => MOVEMENT_COST_STAIRS,
+        // Same as a plain path to reach the entrance; FIFO advance inside the queue
+        // itself is governed separately once TPM-45's queue state lands.
+        InfrastructureShape::Queue { .. } => MOVEMENT_COST_PATH,
     }
 }
 
@@ -22,6 +25,7 @@ pub(crate) fn vertical_movement_cost_for(shape: &InfrastructureShape) -> u32 {
         InfrastructureShape::Ramp { .. } => 1,
         InfrastructureShape::Stairs { .. } => 2,
         InfrastructureShape::Path => 0,
+        InfrastructureShape::Queue { .. } => 0,
     }
 }
 
@@ -30,6 +34,7 @@ pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
         InfrastructureShape::Path => 1.0,
         InfrastructureShape::Ramp { .. } => 0.7,
         InfrastructureShape::Stairs { .. } => 0.5,
+        InfrastructureShape::Queue { .. } => 1.0,
     }
 }
 
@@ -81,9 +86,10 @@ pub enum InfrastructureShape {
     Path,
     Ramp { to_z: i32 },
     Stairs { to_z: i32 },
+    Queue { attraction_id: BuildingId },
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct BuildingId {
     pub building_id: String,
     pub template_id: String,
@@ -272,7 +278,10 @@ impl ParkMap {
                     return Err(ErrorCode::ErrorCrossingNotAllowed);
                 }
             }
-            if !matches!(kind, InfrastructureShape::Path) {
+            if matches!(
+                kind,
+                InfrastructureShape::Ramp { .. } | InfrastructureShape::Stairs { .. }
+            ) {
                 if !self.is_level_available(to_z) {
                     return Err(ErrorCode::ErrorOutOfBounds);
                 }
@@ -363,6 +372,10 @@ mod tests {
             assert_eq!(result, 2);
             result = movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
             assert_eq!(result, 3);
+            result = movement_cost_for(&InfrastructureShape::Queue {
+                attraction_id: BuildingId::default(),
+            });
+            assert_eq!(result, 1);
         }
 
         #[test]
@@ -373,6 +386,19 @@ mod tests {
             assert_eq!(result, 1);
             result = vertical_movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
             assert_eq!(result, 2);
+            result = vertical_movement_cost_for(&InfrastructureShape::Queue {
+                attraction_id: BuildingId::default(),
+            });
+            assert_eq!(result, 0);
+        }
+
+        #[test]
+        fn test_base_speed_for_a_queue_matches_a_plain_path() {
+            let queue_speed = base_speed_for(&InfrastructureShape::Queue {
+                attraction_id: BuildingId::default(),
+            });
+
+            assert_eq!(queue_speed, base_speed_for(&InfrastructureShape::Path));
         }
     }
 
@@ -731,6 +757,24 @@ mod tests {
             let result = park_map.can_place_infrastructure(
                 &test_catalog(),
                 InfrastructureShape::Path,
+                0,
+                &[(0, 0, 0)],
+            );
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_can_place_infrastructure_succeeds_for_queue_without_requiring_a_to_z_adjacency() {
+            // Regression: Queue is horizontal like Path, unlike Ramp/Stairs — it must
+            // not be rejected by the vertical-transition check just for not being Path.
+            let park_map = build_infra_test_map();
+
+            let result = park_map.can_place_infrastructure(
+                &test_catalog(),
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId::default(),
+                },
                 0,
                 &[(0, 0, 0)],
             );

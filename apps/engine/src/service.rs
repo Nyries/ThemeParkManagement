@@ -74,6 +74,14 @@ impl SimulationService for SimulationEngineService {
                         Ok(InfrastructureKind::Stairs) => {
                             Ok(InfrastructureShape::Stairs { to_z: p.to_z })
                         }
+                        Ok(InfrastructureKind::Queue) => world
+                            .park_map
+                            .building
+                            .values()
+                            .find(|b| b.building_id == p.attraction_building_id)
+                            .cloned()
+                            .map(|attraction_id| InfrastructureShape::Queue { attraction_id })
+                            .ok_or(ErrorCode::ErrorInvalidTemplate),
                         _ => Err(ErrorCode::ErrorEmpty),
                     };
 
@@ -245,15 +253,19 @@ impl SimulationService for SimulationEngineService {
             .infrastructure
             .iter()
             .map(|(&(x, y, z), shape)| {
-                let (kind, to_z) = match shape {
-                    InfrastructureShape::Path => (InfrastructureKind::Path, 0),
-                    InfrastructureShape::Ramp { to_z } => (InfrastructureKind::Ramp, *to_z),
-                    InfrastructureShape::Stairs { to_z } => (InfrastructureKind::Stairs, *to_z),
+                let (kind, to_z, attraction_building_id) = match shape {
+                    InfrastructureShape::Path => (InfrastructureKind::Path, 0, String::new()),
+                    InfrastructureShape::Ramp { to_z } => (InfrastructureKind::Ramp, *to_z, String::new()),
+                    InfrastructureShape::Stairs { to_z } => (InfrastructureKind::Stairs, *to_z, String::new()),
+                    InfrastructureShape::Queue { attraction_id } => {
+                        (InfrastructureKind::Queue, 0, attraction_id.building_id.clone())
+                    }
                 };
                 InfrastructureCell {
                     coord: Some(Coord { x, y, z }),
                     kind: kind as i32,
                     to_z,
+                    attraction_building_id,
                 }
             })
             .collect();
@@ -355,6 +367,7 @@ mod tests {
             kind: InfrastructureKind::Path.into(),
             to_z: 0,
             coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
+            attraction_building_id: String::new(),
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
@@ -377,6 +390,67 @@ mod tests {
             world.park_map.get_infrastructure(0, 0, 0),
             Some(&InfrastructureShape::Path)
         )
+    }
+
+    #[tokio::test]
+    async fn test_send_command_with_place_infrastructure_queue_succeeds_when_attraction_exists() {
+        let service = build_service();
+        let attraction = BuildingId {
+            building_id: "b1".into(),
+            template_id: "roller_coaster".into(),
+        };
+        service
+            .world
+            .lock()
+            .unwrap()
+            .park_map
+            .building
+            .insert((5, 5, 0), attraction.clone());
+
+        let place_infrastructure = PlaceInfrastructure {
+            kind: InfrastructureKind::Queue.into(),
+            to_z: 0,
+            coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
+            attraction_building_id: "b1".into(),
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: Command::PlaceInfrastructure(place_infrastructure).into(),
+        });
+
+        let response = service.send_command(request).await;
+
+        assert!(response.unwrap().into_inner().success);
+        let world = service.world.lock().unwrap();
+        assert_eq!(
+            world.park_map.get_infrastructure(0, 0, 0),
+            Some(&InfrastructureShape::Queue {
+                attraction_id: attraction
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_command_with_place_infrastructure_queue_fails_when_attraction_does_not_exist()
+     {
+        let service = build_service();
+
+        let place_infrastructure = PlaceInfrastructure {
+            kind: InfrastructureKind::Queue.into(),
+            to_z: 0,
+            coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
+            attraction_building_id: "missing".into(),
+        };
+        let request = Request::new(CommandRequest {
+            park_id: "1".into(),
+            command: Command::PlaceInfrastructure(place_infrastructure).into(),
+        });
+
+        let response = service.send_command(request).await;
+
+        let inner = response.unwrap().into_inner();
+        assert!(!inner.success);
+        assert_eq!(inner.error_code, ErrorCode::ErrorInvalidTemplate as i32);
     }
 
     #[tokio::test]
@@ -637,6 +711,7 @@ mod tests {
                 coord: Some(Coord { x: 1, y: 0, z: 0 }),
                 kind: InfrastructureKind::Ramp.into(),
                 to_z: 1,
+                attraction_building_id: String::new(),
             }]
         );
     }

@@ -28,6 +28,7 @@ export enum InfrastructureKind {
   INFRASTRUCTURE_KIND_PATH = 1,
   INFRASTRUCTURE_KIND_RAMP = 2,
   INFRASTRUCTURE_KIND_STAIRS = 3,
+  INFRASTRUCTURE_KIND_QUEUE = 4,
   UNRECOGNIZED = -1,
 }
 
@@ -45,6 +46,9 @@ export function infrastructureKindFromJSON(object: any): InfrastructureKind {
     case 3:
     case "INFRASTRUCTURE_KIND_STAIRS":
       return InfrastructureKind.INFRASTRUCTURE_KIND_STAIRS;
+    case 4:
+    case "INFRASTRUCTURE_KIND_QUEUE":
+      return InfrastructureKind.INFRASTRUCTURE_KIND_QUEUE;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -62,6 +66,8 @@ export function infrastructureKindToJSON(object: InfrastructureKind): string {
       return "INFRASTRUCTURE_KIND_RAMP";
     case InfrastructureKind.INFRASTRUCTURE_KIND_STAIRS:
       return "INFRASTRUCTURE_KIND_STAIRS";
+    case InfrastructureKind.INFRASTRUCTURE_KIND_QUEUE:
+      return "INFRASTRUCTURE_KIND_QUEUE";
     case InfrastructureKind.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -192,6 +198,8 @@ export interface PlaceInfrastructure {
   /** Ignored when kind == INFRASTRUCTURE_PATH */
   toZ: number;
   coordinates: Coord[];
+  /** Required when kind == INFRASTRUCTURE_KIND_QUEUE, ignored otherwise */
+  attractionBuildingId: string;
 }
 
 export interface RemoveInfrastructure {
@@ -252,6 +260,8 @@ export interface InfrastructureCell {
   coord: Coord | undefined;
   kind: InfrastructureKind;
   toZ: number;
+  /** Set when kind == INFRASTRUCTURE_KIND_QUEUE */
+  attractionBuildingId: string;
 }
 
 export interface BuildingCell {
@@ -446,7 +456,7 @@ export const ApplyTerrain: MessageFns<ApplyTerrain> = {
 };
 
 function createBasePlaceInfrastructure(): PlaceInfrastructure {
-  return { kind: 0, toZ: 0, coordinates: [] };
+  return { kind: 0, toZ: 0, coordinates: [], attractionBuildingId: "" };
 }
 
 export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
@@ -459,6 +469,9 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     }
     for (const v of message.coordinates) {
       Coord.encode(v!, writer.uint32(26).fork()).join();
+    }
+    if (message.attractionBuildingId !== "") {
+      writer.uint32(34).string(message.attractionBuildingId);
     }
     return writer;
   },
@@ -494,6 +507,14 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
           message.coordinates.push(Coord.decode(reader, reader.uint32()));
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.attractionBuildingId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -510,6 +531,11 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
       coordinates: globalThis.Array.isArray(object?.coordinates)
         ? object.coordinates.map((e: any) => Coord.fromJSON(e))
         : [],
+      attractionBuildingId: isSet(object.attractionBuildingId)
+        ? globalThis.String(object.attractionBuildingId)
+        : isSet(object.attraction_building_id)
+        ? globalThis.String(object.attraction_building_id)
+        : "",
     };
   },
 
@@ -524,6 +550,9 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     if (message.coordinates?.length) {
       obj.coordinates = message.coordinates.map((e) => Coord.toJSON(e));
     }
+    if (message.attractionBuildingId !== "") {
+      obj.attractionBuildingId = message.attractionBuildingId;
+    }
     return obj;
   },
 
@@ -535,6 +564,7 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     message.kind = object.kind ?? 0;
     message.toZ = object.toZ ?? 0;
     message.coordinates = object.coordinates?.map((e) => Coord.fromPartial(e)) || [];
+    message.attractionBuildingId = object.attractionBuildingId ?? "";
     return message;
   },
 };
@@ -1444,7 +1474,7 @@ export const TerrainCell: MessageFns<TerrainCell> = {
 };
 
 function createBaseInfrastructureCell(): InfrastructureCell {
-  return { coord: undefined, kind: 0, toZ: 0 };
+  return { coord: undefined, kind: 0, toZ: 0, attractionBuildingId: "" };
 }
 
 export const InfrastructureCell: MessageFns<InfrastructureCell> = {
@@ -1457,6 +1487,9 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
     }
     if (message.toZ !== 0) {
       writer.uint32(24).int32(message.toZ);
+    }
+    if (message.attractionBuildingId !== "") {
+      writer.uint32(34).string(message.attractionBuildingId);
     }
     return writer;
   },
@@ -1492,6 +1525,14 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
           message.toZ = reader.int32();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.attractionBuildingId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1506,6 +1547,11 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
       coord: isSet(object.coord) ? Coord.fromJSON(object.coord) : undefined,
       kind: isSet(object.kind) ? infrastructureKindFromJSON(object.kind) : 0,
       toZ: isSet(object.toZ) ? globalThis.Number(object.toZ) : isSet(object.to_z) ? globalThis.Number(object.to_z) : 0,
+      attractionBuildingId: isSet(object.attractionBuildingId)
+        ? globalThis.String(object.attractionBuildingId)
+        : isSet(object.attraction_building_id)
+        ? globalThis.String(object.attraction_building_id)
+        : "",
     };
   },
 
@@ -1520,6 +1566,9 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
     if (message.toZ !== 0) {
       obj.toZ = Math.round(message.toZ);
     }
+    if (message.attractionBuildingId !== "") {
+      obj.attractionBuildingId = message.attractionBuildingId;
+    }
     return obj;
   },
 
@@ -1531,6 +1580,7 @@ export const InfrastructureCell: MessageFns<InfrastructureCell> = {
     message.coord = (object.coord !== undefined && object.coord !== null) ? Coord.fromPartial(object.coord) : undefined;
     message.kind = object.kind ?? 0;
     message.toZ = object.toZ ?? 0;
+    message.attractionBuildingId = object.attractionBuildingId ?? "";
     return message;
   },
 };
