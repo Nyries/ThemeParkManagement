@@ -8,9 +8,7 @@ use crate::{
     simulation::{ErrorCode, Rotation},
 };
 
-// Cost is driven by the infrastructure a visitor walks on, never the bare
-// terrain underneath — a visitor never walks on unbuilt terrain, cf.
-// `is_walkable()`. See TPM-138.
+// Cost is driven by infrastructure, never bare terrain — cf. `is_walkable()`.
 pub(crate) fn movement_cost_for(shape: &InfrastructureShape) -> u32 {
     match shape {
         InfrastructureShape::Path => MOVEMENT_COST_PATH,
@@ -146,12 +144,8 @@ impl ParkMap {
         self.infrastructure.get(&(x, y, z))
     }
 
-    /// Picks a random walkable cell reachable from `exclude`, or `None` if no other
-    /// cell is actually reachable (e.g. `exclude` sits in a disconnected pocket, or is
-    /// the only walkable cell on the map) — TPM-157. A candidate merely existing in
-    /// `self.infrastructure` is not enough: it must have an actual path from `exclude`,
-    /// otherwise a caller assigning it as a target would deterministically end up with
-    /// an empty path forever, indistinguishable from a frozen visitor.
+    /// Picks a random walkable cell reachable from `exclude`, or `None` if none is —
+    /// existing in `self.infrastructure` isn't enough, it must have an actual path.
     pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
         let mut candidates: Vec<(i32, i32, i32)> = self
             .infrastructure
@@ -475,9 +469,6 @@ mod tests {
 
         #[test]
         fn test_returns_none_when_it_is_the_only_walkable_cell() {
-            // TPM-157 regression: previously fell back to `exclude` itself, which a
-            // caller assigning as a new target would turn into a permanently empty
-            // path — a visitor frozen forever without ever failing explicitly.
             let mut map = build_reachable_test_map();
             map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
@@ -497,9 +488,6 @@ mod tests {
 
         #[test]
         fn test_ignores_a_candidate_that_exists_but_is_unreachable() {
-            // TPM-157 regression: `exclude` sits in a disconnected pocket. The other
-            // cell exists in `infrastructure` but has no path from `exclude` — it must
-            // never be picked, unlike the old purely-random selection over all keys.
             let mut map = build_reachable_test_map();
             map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             // (5,5,0) is never connected to (0,0,0): no infrastructure links them.

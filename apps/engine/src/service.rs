@@ -383,12 +383,12 @@ mod tests {
     async fn test_send_command_with_remove_infrastructure_succeeds() {
         // 1. Initialization of a world and a test service
         let service = build_service();
-        service
-            .world
-            .lock()
-            .unwrap()
-            .park_map
-            .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+        service.world.lock().unwrap().park_map.set_infrastructure(
+            0,
+            0,
+            0,
+            InfrastructureShape::Path,
+        );
 
         // 2. Creating a mock gRPC request
         let remove_infrasture = RemoveInfrastructure {

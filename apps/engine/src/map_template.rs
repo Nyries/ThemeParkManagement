@@ -298,8 +298,8 @@ mod tests {
         }"#;
 
         fn write_temp_json(content: &str) -> std::path::PathBuf {
-            let path =
-                std::env::temp_dir().join(format!("map_template_test_{}.json", uuid::Uuid::new_v4()));
+            let path = std::env::temp_dir()
+                .join(format!("map_template_test_{}.json", uuid::Uuid::new_v4()));
             std::fs::write(&path, content).unwrap();
             path
         }
