@@ -50,6 +50,7 @@ describe("registerCommandHandlers (integration)", () => {
       terrain: [],
       infrastructure: [],
       entrance: undefined,
+      building: [],
     });
 
     httpServer = createServer();
@@ -140,6 +141,7 @@ describe("registerCommandHandlers (integration)", () => {
       terrain: [],
       infrastructure: [],
       entrance: undefined,
+      building: [],
     };
     mockGetMap.mockResolvedValueOnce(map);
 

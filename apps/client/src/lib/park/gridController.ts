@@ -19,6 +19,7 @@ import {
   removeInfrastructureAt,
 } from "./commands";
 import { DEFAULT_MATERIAL_ID, isMaterialBuildable } from "./materials";
+import type { ParkBuilding } from "./mapFromResponse";
 import {
   rotateFootprint,
   type PlaceBuilding,
@@ -36,6 +37,7 @@ interface GridControllerOptions {
   cellGraphics: Graphics[][];
   terrain: TerrainMaterial[][];
   infrastructure: (InfrastructureKind | null)[][];
+  buildings: Map<string, ParkBuilding>;
   ghost: Graphics;
   width: number;
   height: number;
@@ -53,6 +55,7 @@ export function createGridController({
   cellGraphics,
   terrain,
   infrastructure,
+  buildings: initialBuildings,
   ghost,
   width,
   height,
@@ -62,6 +65,28 @@ export function createGridController({
     () => Array(terrain[0].length).fill(null),
   );
   const buildings = new Map<string, PlaceBuilding>();
+
+  // Buildings restored from the server on load: no origin/rotation is
+  // persisted engine-side (TPM-175 — out of scope, current colour fill
+  // doesn't depend on orientation), so an arbitrary cell of the footprint is
+  // used as origin and the footprint offsets are derived from it directly.
+  for (const building of initialBuildings.values()) {
+    const origin = building.cells[0];
+    const footprint = building.cells.map((cell) => ({
+      x: cell.x - origin.x,
+      y: cell.y - origin.y,
+    }));
+    const key = `${origin.x},${origin.y}`;
+    buildings.set(key, {
+      templateId: building.templateId,
+      origin,
+      rotation: Rotation.ROTATION_DEG_0,
+      footprint,
+    });
+    for (const cell of building.cells) {
+      buildingGrid[cell.y][cell.x] = key;
+    }
+  }
 
   let hoveredCell: { x: number; y: number } | null = null;
   // Drag-tracing state, shared by ApplyTerrain, PlaceInfrastructure and
@@ -353,6 +378,7 @@ export function createGridController({
   }
 
   return {
+    buildingGrid,
     handleCellClick,
     handlePointerOver,
     handlePointerDown,

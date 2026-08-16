@@ -74,6 +74,7 @@ const emptyMap: MapResponse = {
   terrain: [],
   infrastructure: [],
   entrance: undefined,
+  building: [],
 };
 
 const NO_TOOL: ToolState = { mode: null };
@@ -480,6 +481,43 @@ describe("Park", () => {
     await handlePointerDown(); // click the same (now built-on) cell again
 
     expect(confirmSpy).toHaveBeenCalled();
+    expect(mockSendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ $case: "removeBuilding" }),
+      }),
+    );
+
+    confirmSpy.mockRestore();
+  });
+
+  it("restores a building received from the map on load, fillable and removable without re-placing it", async () => {
+    mockOnMap.mockResolvedValue({
+      ...emptyMap,
+      maxX: 1,
+      maxY: 1, // 2x2 map
+      building: [
+        { coord: { x: 0, y: 0, z: 0 }, buildingId: "b1", templateId: "shop" },
+        { coord: { x: 1, y: 0, z: 0 }, buildingId: "b1", templateId: "shop" },
+      ],
+    });
+    mockSendCommand.mockResolvedValue({
+      success: true,
+      message: "OK",
+      errorCode: 0,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<Park tool={{ mode: "remove" }} onToolChange={vi.fn()} />);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Cells are added in (y, x) order: index 0 is (0,0), index 1 is (1,0),
+    // both restored from the map response without ever being placed in-session.
+    const originCell = mockStageAddChild.mock.calls[0][0];
+    const handlePointerDown = originCell.on.mock.calls[2][1];
+    await handlePointerDown();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(mockSendCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: expect.objectContaining({ $case: "removeBuilding" }),

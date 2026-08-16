@@ -2,9 +2,15 @@ import type { MapResponse } from "@app/shared-types";
 import { InfrastructureKind as ProtoInfrastructureKind } from "@app/shared-types";
 import type { InfrastructureKind, TerrainMaterial } from "../../rendering/grid";
 
+export interface ParkBuilding {
+  templateId: string;
+  cells: { x: number; y: number }[];
+}
+
 export interface ParkGrid {
   terrain: TerrainMaterial[][];
   infrastructure: (InfrastructureKind | null)[][];
+  buildings: Map<string, ParkBuilding>;
   width: number;
   height: number;
 }
@@ -48,5 +54,21 @@ export function mapFromResponse(response: MapResponse): ParkGrid {
     infrastructure[y][x] = toClientInfrastructureKind(cell.kind);
   }
 
-  return { terrain, infrastructure, width, height };
+  const buildings = new Map<string, ParkBuilding>();
+  for (const cell of response.building) {
+    if (!cell.coord || cell.coord.z !== 0) continue;
+    const x = cell.coord.x - response.minX;
+    const y = cell.coord.y - response.minY;
+    const building = buildings.get(cell.buildingId);
+    if (building) {
+      building.cells.push({ x, y });
+    } else {
+      buildings.set(cell.buildingId, {
+        templateId: cell.templateId,
+        cells: [{ x, y }],
+      });
+    }
+  }
+
+  return { terrain, infrastructure, buildings, width, height };
 }

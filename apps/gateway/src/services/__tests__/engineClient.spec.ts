@@ -191,6 +191,7 @@ describe("EngineClient Service", () => {
         terrain: [],
         infrastructure: [],
         entrance: undefined,
+        building: [],
       };
       mockGetMap.mockImplementation((_request, callback) =>
         callback(null, mockResponse),

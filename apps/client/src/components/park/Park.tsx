@@ -75,7 +75,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
     onMap().then(async (mapResponse) => {
       if (cancelled) return;
 
-      const { terrain, infrastructure, width, height } =
+      const { terrain, infrastructure, buildings, width, height } =
         mapFromResponse(mapResponse);
       const cellGraphics: Graphics[][] = Array.from(
         { length: terrain.length },
@@ -91,6 +91,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         cellGraphics,
         terrain,
         infrastructure,
+        buildings,
         ghost,
         width,
         height,
@@ -111,7 +112,13 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
 
       for (let y = 0; y < terrain.length; y++) {
         for (let x = 0; x < terrain[y].length; x++) {
-          const color = getCellColor(x, y, terrain, infrastructure);
+          const color = getCellColor(
+            x,
+            y,
+            terrain,
+            infrastructure,
+            Boolean(controller.buildingGrid[y][x]),
+          );
           const cell = new Graphics()
             .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
             .fill(color)
