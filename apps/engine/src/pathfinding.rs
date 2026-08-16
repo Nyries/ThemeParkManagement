@@ -1,3 +1,4 @@
+use crate::balance::MOVEMENT_COST_PATH;
 use crate::map::{InfrastructureShape, ParkMap, movement_cost_for, vertical_movement_cost_for};
 
 pub type PathResult = (Vec<(i32, i32, i32)>, u32);
@@ -26,9 +27,9 @@ impl ParkMap {
             }
 
             let cost = self
-                .get_terrain(nx, ny, nz)
-                .map(|material| movement_cost_for(material))
-                .unwrap_or(5);
+                .get_infrastructure(nx, ny, nz)
+                .map(movement_cost_for)
+                .unwrap_or(MOVEMENT_COST_PATH);
 
             result.push(((nx, ny, nz), cost));
         }
@@ -145,21 +146,20 @@ mod tests {
         use crate::map::InfrastructureShape;
 
         #[test]
-        fn test_successors_returns_walkable_infrastructure_neighbors_with_terrain_cost() {
+        fn test_successors_returns_walkable_infrastructure_neighbors_with_infrastructure_cost() {
             let mut map = build_map();
 
-            map.set_terrain(1, 0, 0, "path".into());
+            // Cost must come from the infrastructure at each neighbor, never
+            // the terrain underneath — TPM-138.
             map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
-
-            map.set_terrain(0, 1, 0, "grass".into());
-            map.set_infrastructure(0, 1, 0, InfrastructureShape::Path);
+            map.set_infrastructure(0, 1, 0, InfrastructureShape::Stairs { to_z: 1 });
 
             let mut result = map.successors(&(0, 0, 0));
             result.sort();
 
             let mut expected = vec![
-                ((1, 0, 0), 1), // "path" -> movement_cost_for = 1
-                ((0, 1, 0), 5), // "grass" -> movement_cost_for = 5
+                ((1, 0, 0), 1), // Path -> movement_cost_for = 1
+                ((0, 1, 0), 3), // Stairs -> movement_cost_for = 3
             ];
             expected.sort();
 

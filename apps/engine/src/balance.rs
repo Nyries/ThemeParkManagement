@@ -15,4 +15,10 @@ pub const SPAWN_INTERVAL_TICKS: u64 = 20; // ticks
 pub const STEERING_FACTOR: f32 = 0.3;
 pub const LATERAL_REPULSION_FACTOR: f32 = 0.1;
 
+/// 🔶 esquissé — coût de déplacement horizontal par case, selon le type
+/// d'infrastructure (pas le terrain). Voir Wiki des Formules §Déplacement des visiteurs.
+pub const MOVEMENT_COST_PATH: u32 = 1;
+pub const MOVEMENT_COST_RAMP: u32 = 2;
+pub const MOVEMENT_COST_STAIRS: u32 = 3;
+
 // Calibrated
