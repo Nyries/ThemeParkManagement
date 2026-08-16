@@ -429,7 +429,9 @@ fn template_utility(v: &Visitor, template: &crate::building_template::BuildingTe
 /// Picks the reachable cell with the best destination score. Only strictly positive
 /// scores count — a cell with no relevant building never outscores wandering. `coût`
 /// adds the estimated queue wait (0 if the adjacent building has no active queue) to
-/// the plain movement cost, so a saturated queue naturally loses out to other targets.
+/// the plain movement cost, so a busy queue naturally loses out to other targets — and
+/// a queue already at capacity is excluded outright (renoncement): a visitor never
+/// walks toward a full queue only to find no room, it picks another target immediately.
 fn best_destination(
     v: &Visitor,
     park_map: &ParkMap,
@@ -438,6 +440,7 @@ fn best_destination(
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) -> Option<(i32, i32, i32)> {
+    let diameter = visitor_diameter();
     park_map
         .infrastructure
         .keys()
@@ -445,17 +448,18 @@ fn best_destination(
         .filter_map(|&cell| {
             let (_, movement_cost) = park_map.find_path(old_cell, cell)?;
             let building = adjacent_building(park_map, cell);
+            let queue = building.and_then(|b| queues.get(&b.building_id));
+            if queue.is_some_and(|q| q.is_full(diameter)) {
+                return None;
+            }
             let template = building.and_then(|b| catalog.get(&b.template_id));
             let utility = template.map(|t| template_utility(v, t)).unwrap_or(0.0);
             let affinity = template
                 .map(|template| affinity_for(&v.profile, &template.tags))
                 .unwrap_or(AFFINITY_DEFAULT);
             let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
-            let wait = match (building, template) {
-                (Some(b), Some(t)) => queues
-                    .get(&b.building_id)
-                    .map(|queue| estimated_wait_for(queue, t))
-                    .unwrap_or(0.0),
+            let wait = match (queue, template) {
+                (Some(queue), Some(t)) => estimated_wait_for(queue, t),
                 _ => 0.0,
             };
             let cost = movement_cost as f32 + wait;
@@ -1870,6 +1874,46 @@ mod tests {
             );
 
             assert_eq!(v.target, (-1, 0, 0)); // free: no queue wait, same utility/affinity/cost otherwise
+        }
+
+        #[test]
+        fn test_excludes_a_queue_at_capacity_even_though_it_would_otherwise_score_highest() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // adjacent to the full attraction
+            park_map.set_building(
+                2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "full".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "full".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0)], // capacity 1 (single-cell chain)
+                    occupants: vec!["someone_already_waiting".to_string()].into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0); // strongly wants the attraction
+
+            // Direct call: the only candidate scores highest on utility/affinity/cost,
+            // but must still be excluded outright since its queue is already full.
+            let result = best_destination(
+                &v,
+                &park_map,
+                &catalog_with_two_identical_coasters(),
+                &queues,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(result, None);
         }
 
         #[test]
