@@ -141,23 +141,26 @@ pub fn relieve_need(needs: &mut HashMap<String, f32>, need: &str, amount: f32) {
     }
 }
 
-/// Convex penalty: 0 while the need stays under its comfort threshold, growing sharply
-/// past it. `penalty(need) = weight * ((threshold - level) / threshold)^p`, weight = 1.0
-/// uniformly across needs for now (per-need weighting deferred to a later calibration).
+/// Convex penalty: needs grow toward 100 the more urgent they are (see `grow_needs`), so
+/// the penalty is 0 while a need stays under its comfort threshold, growing sharply once
+/// it exceeds it. `penalty(need) = weight * ((level - threshold) / threshold)^p`, weight
+/// = 1.0 uniformly across needs for now (per-need weighting deferred to a later
+/// calibration).
 pub fn penalty_for(level: f32, threshold: f32) -> f32 {
-    if threshold <= 0.0 || level >= threshold {
+    if threshold <= 0.0 || level <= threshold {
         return 0.0;
     }
-    ((threshold - level) / threshold).powf(SATISFACTION_PENALTY_EXPONENT)
+    ((level - threshold) / threshold).powf(SATISFACTION_PENALTY_EXPONENT)
 }
 
 /// Gain granted when a need is relieved, proportional to the relief's intensity and to
-/// how urgent the need was right before being relieved (0 if it was already comfortable).
+/// how urgent the need was right before being relieved (0 if it was still far under its
+/// comfort threshold, maxing out once the need had reached or passed it).
 pub fn gain_for(relief_intensity: f32, level_before_relief: f32, threshold: f32) -> f32 {
     let urgency = if threshold <= 0.0 {
         0.0
     } else {
-        ((threshold - level_before_relief) / threshold).max(0.0)
+        (level_before_relief / threshold).clamp(0.0, 1.0)
     };
     relief_intensity * urgency
 }
@@ -365,36 +368,45 @@ mod tests {
         }
 
         #[test]
-        fn test_penalty_for_is_zero_at_or_above_threshold() {
+        fn test_penalty_for_is_zero_at_or_below_threshold() {
             assert_eq!(penalty_for(70.0, 70.0), 0.0);
-            assert_eq!(penalty_for(90.0, 70.0), 0.0);
+            assert_eq!(penalty_for(50.0, 70.0), 0.0);
         }
 
         #[test]
-        fn test_penalty_for_grows_convexly_below_threshold() {
-            let small_deficit = penalty_for(60.0, 70.0); // (10/70)^2
-            let large_deficit = penalty_for(20.0, 70.0); // (50/70)^2
+        fn test_penalty_for_grows_convexly_past_threshold() {
+            let small_overshoot = penalty_for(80.0, 70.0); // (10/70)^2
+            let large_overshoot = penalty_for(100.0, 70.0); // (30/70)^2
 
-            assert!(small_deficit > 0.0);
-            assert!(large_deficit > small_deficit);
+            assert!(small_overshoot > 0.0);
+            assert!(large_overshoot > small_overshoot);
             let expected_small = (10.0_f32 / 70.0).powf(SATISFACTION_PENALTY_EXPONENT);
-            assert!((small_deficit - expected_small).abs() < 1e-5);
+            assert!((small_overshoot - expected_small).abs() < 1e-5);
         }
 
         #[test]
-        fn test_gain_for_is_zero_when_need_was_already_comfortable() {
-            let gain = gain_for(20.0, 80.0, 70.0); // level_before >= threshold
+        fn test_gain_for_is_zero_when_need_was_far_from_urgent() {
+            let gain = gain_for(20.0, 0.0, 70.0); // level_before = 0, no urgency at all
 
             assert_eq!(gain, 0.0);
         }
 
         #[test]
         fn test_gain_for_scales_with_intensity_and_urgency() {
-            let low_urgency = gain_for(20.0, 60.0, 70.0); // urgency = 10/70
-            let high_urgency = gain_for(20.0, 10.0, 70.0); // urgency = 60/70
+            let low_urgency = gain_for(20.0, 20.0, 70.0); // urgency = 20/70
+            let high_urgency = gain_for(20.0, 60.0, 70.0); // urgency = 60/70
 
             assert!(high_urgency > low_urgency);
             assert!(low_urgency > 0.0);
+        }
+
+        #[test]
+        fn test_gain_for_urgency_caps_at_one_past_the_threshold() {
+            let at_threshold = gain_for(20.0, 70.0, 70.0);
+            let past_threshold = gain_for(20.0, 100.0, 70.0);
+
+            assert_eq!(at_threshold, 20.0);
+            assert_eq!(past_threshold, 20.0);
         }
 
         #[test]

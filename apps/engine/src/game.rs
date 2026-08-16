@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS},
+    balance::{COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, SPAWN_INTERVAL_TICKS},
     building_template::{BuildingCatalog, CatalogSource},
     map::{Bounds3d, ParkMap, base_speed_for},
-    visitor::{Visitor, VisitorId, repulsion_force, speed_at},
+    visitor::{Visitor, VisitorId, grow_needs, penalty_for, repulsion_force, speed_at, update_satisfaction},
 };
 
 #[derive(Debug, Default)]
@@ -92,14 +92,18 @@ impl GameWorld {
         for v in self.visitors.iter_mut() {
             v.ticks_since_spawn += 1;
             let old_cell = cell_of(v.position);
+            let position_before_advance = v.position;
 
             redirect_if_expired(v, &self.park_map, old_cell, exit);
+            redirect_if_leaving_early(v, &self.park_map, old_cell, exit);
             assign_new_target_if_arrived(v, &self.park_map, old_cell);
             recompute_path_if_blocked(v, &self.park_map, old_cell);
 
             let speed = compute_speed(&self.park_map, &self.density, old_cell);
             let repulsion = compute_repulsion(v, &self.density, &positions, old_cell);
             v.advance(speed, dt, repulsion);
+
+            update_needs_and_satisfaction(v, distance_moved(position_before_advance, v.position));
 
             let new_cell = cell_of(v.position);
             update_density_and_dirty_chunks(
@@ -158,6 +162,13 @@ fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
     )
 }
 
+fn distance_moved(before: (f32, f32, f32), after: (f32, f32, f32)) -> f32 {
+    let dx = after.0 - before.0;
+    let dy = after.1 - before.1;
+    let dz = after.2 - before.2;
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
 fn redirect_if_expired(
     v: &mut Visitor,
     park_map: &ParkMap,
@@ -170,6 +181,45 @@ fn redirect_if_expired(
         v.target = exit;
         v.path = park_map.path_excluding_start(old_cell, exit);
     }
+}
+
+/// Redirects a visitor toward the exit once their cumulative satisfaction has
+/// collapsed net (TPM-44) — stricter departure trigger than plain visit expiry
+/// (`redirect_if_expired`), same redirection mechanics.
+fn redirect_if_leaving_early(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    old_cell: (i32, i32, i32),
+    exit: Option<(i32, i32, i32)>,
+) {
+    let Some(exit) = exit else { return };
+    if v.should_leave_early() && !v.is_leaving {
+        v.is_leaving = true;
+        v.target = exit;
+        v.path = park_map.path_excluding_start(old_cell, exit);
+    }
+}
+
+/// Grows every core need by the distance moved this tick, then rolls the resulting
+/// per-need penalties into cumulative satisfaction. No gain side yet — that only
+/// happens when a visitor actually relieves a need at a building (TPM-44 step 5).
+fn update_needs_and_satisfaction(v: &mut Visitor, distance_moved: f32) {
+    grow_needs(&mut v.needs, distance_moved);
+
+    let total_penalty: f32 = v
+        .needs
+        .iter()
+        .map(|(need, &level)| {
+            let threshold = v
+                .comfort_thresholds
+                .get(need)
+                .copied()
+                .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+            penalty_for(level, threshold)
+        })
+        .sum();
+
+    v.satisfaction = update_satisfaction(v.satisfaction, 0.0, total_penalty);
 }
 
 fn assign_new_target_if_arrived(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32)) {
@@ -676,6 +726,45 @@ mod tests {
         }
 
         #[test]
+        fn test_tick_grows_needs_and_updates_satisfaction() {
+            let mut world = GameWorld::new();
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.visitors.push(Visitor::new("a".into(), (0.0, 0.0, 0.0)));
+
+            world.tick(0.05);
+
+            let visitor = &world.visitors[0];
+            for need in crate::visitor::CORE_NEEDS {
+                assert!(visitor.needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_tick_redirects_dissatisfied_visitor_toward_exit() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            let mut visitor = Visitor::new("a".into(), (1.0, 0.0, 0.0));
+            visitor.target = (1, 0, 0);
+            visitor.satisfaction = crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD - 1.0;
+            world.visitors.push(visitor);
+
+            world.tick(0.01);
+
+            let visitor = &world.visitors[0];
+            assert!(visitor.is_leaving);
+            assert_eq!(visitor.target, (0, 0, 0));
+        }
+
+        #[test]
         fn test_tick_removes_visitor_who_reached_the_exit() {
             let mut world = GameWorld::new();
             world
@@ -852,6 +941,149 @@ mod tests {
         }
     }
 
+    mod redirect_if_leaving_early {
+        use super::*;
+        use crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD;
+
+        fn dissatisfied_visitor_at(position: (i32, i32, i32)) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (position.0 as f32, position.1 as f32, position.2 as f32),
+                path: vec![],
+                target: position,
+                satisfaction: EARLY_DEPARTURE_SATISFACTION_THRESHOLD - 1.0,
+                is_leaving: false,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_there_is_no_exit() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), None);
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_nothing_when_satisfaction_is_above_the_threshold() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+            v.satisfaction = 0.0;
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_not_overwrite_target_when_visitor_is_already_leaving() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+            v.is_leaving = true;
+            v.target = (3, 3, 0);
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.target, (3, 3, 0));
+        }
+
+        #[test]
+        fn test_sets_is_leaving_and_retargets_exit_when_dissatisfied() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((4, 4, 0)));
+
+            assert!(v.is_leaving);
+            assert_eq!(v.target, (4, 4, 0));
+        }
+
+        #[test]
+        fn test_computes_path_toward_exit() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+    }
+
+    mod distance_moved {
+        use super::*;
+
+        #[test]
+        fn test_distance_moved_is_zero_when_position_is_unchanged() {
+            let result = distance_moved((1.0, 2.0, 0.0), (1.0, 2.0, 0.0));
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_distance_moved_computes_euclidean_distance() {
+            let result = distance_moved((0.0, 0.0, 0.0), (3.0, 4.0, 0.0));
+
+            assert_eq!(result, 5.0);
+        }
+    }
+
+    mod update_needs_and_satisfaction {
+        use super::*;
+
+        #[test]
+        fn test_grows_every_core_need() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            for need in crate::visitor::CORE_NEEDS {
+                assert!(v.needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_satisfaction_stays_neutral_while_all_needs_are_comfortable() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            // A single tick of growth from 0 stays far under any comfort threshold,
+            // so no penalty should apply yet.
+            assert_eq!(v.satisfaction, 0.0);
+        }
+
+        #[test]
+        fn test_satisfaction_drops_once_a_need_crosses_its_comfort_threshold() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+            for need in crate::visitor::CORE_NEEDS {
+                v.needs.insert(need.to_string(), 100.0);
+                v.comfort_thresholds.insert(need.to_string(), 70.0);
+            }
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            assert!(v.satisfaction < 0.0);
+        }
+
+        #[test]
+        fn test_missing_comfort_threshold_falls_back_to_the_default() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 100.0);
+            v.comfort_thresholds.remove(crate::visitor::HUNGER);
+
+            // Should not panic looking up a missing threshold, and should still
+            // penalize the over-threshold need using COMFORT_THRESHOLD_DEFAULT.
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            assert!(v.satisfaction < 0.0);
+        }
+    }
+
     mod assign_new_target_if_arrived {
         use super::*;
 
@@ -902,6 +1134,20 @@ mod tests {
 
             assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
             assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_stays_immobile_with_no_panic_when_no_other_cell_is_reachable() {
+            // TPM-157 regression, end-to-end via this call site: the only walkable
+            // cell is the visitor's own. Must not deterministically re-freeze the
+            // visitor by retargeting itself — it should just stay put.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            let mut v = arrived_visitor();
+
+            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+
+            assert!(v.path.is_empty());
         }
     }
 
