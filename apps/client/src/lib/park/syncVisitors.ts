@@ -1,6 +1,6 @@
 import { Graphics, Container } from "pixi.js";
 import type { VisitorState } from "@app/shared-types/grpc";
-import { toScreenX, toScreenY, CELL_SIZE } from "../rendering/grid";
+import { toScreenX, toScreenY, CELL_SIZE } from "../../rendering/grid";
 
 const VISITOR_RADIUS = CELL_SIZE / 4;
 const VISITOR_COLOR = 0xff4444;

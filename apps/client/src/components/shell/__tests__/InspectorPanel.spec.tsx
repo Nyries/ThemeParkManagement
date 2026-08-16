@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InspectorPanel } from "../InspectorPanel";
-import type { ToolState } from "@/park/tool";
+import type { ToolState } from "@/types/park/tool";
 
 const NO_TOOL: ToolState = { mode: null };
 

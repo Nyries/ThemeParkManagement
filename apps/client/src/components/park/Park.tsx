@@ -7,14 +7,14 @@ import {
   getCellColor,
   toScreenX,
   toScreenY,
-} from "../rendering/grid";
-import { useParkSocket } from "../hooks/useParkSocket";
-import { useParkKeyboardShortcuts } from "../hooks/useParkKeyboardShortcuts";
-import { createGridController } from "../park/gridController";
-import { mapFromResponse } from "../park/mapFromResponse";
-import { syncVisitorGraphics } from "../park/syncVisitors";
-import type { SelectionInfo } from "../park/selection";
-import { nextRotation, type ToolState } from "../park/tool";
+} from "../../rendering/grid";
+import { useParkSocket } from "../../hooks/park/useParkSocket";
+import { useParkKeyboardShortcuts } from "../../hooks/park/useParkKeyboardShortcuts";
+import { createGridController } from "../../lib/park/gridController";
+import { mapFromResponse } from "../../lib/park/mapFromResponse";
+import { syncVisitorGraphics } from "../../lib/park/syncVisitors";
+import type { SelectionInfo } from "../../types/park/selection";
+import { nextRotation, type ToolState } from "../../types/park/tool";
 import { Toolbar } from "./Toolbar";
 import { SecondaryToolbar, type SecondaryToolbarHandle } from "./SecondaryToolbar";
 import { Rotation } from "@app/shared-types";

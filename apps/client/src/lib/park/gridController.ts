@@ -9,7 +9,7 @@ import {
   toScreenY,
   type InfrastructureKind,
   type TerrainMaterial,
-} from "../rendering/grid";
+} from "../../rendering/grid";
 import { DEFAULT_BUILDING_ID, findBuildingTemplate } from "./buildingCatalog";
 import {
   applyTerrainAt,
@@ -19,7 +19,11 @@ import {
   removeInfrastructureAt,
 } from "./commands";
 import { DEFAULT_MATERIAL_ID, isMaterialBuildable } from "./materials";
-import { rotateFootprint, type PlaceBuilding, type ToolState } from "./tool";
+import {
+  rotateFootprint,
+  type PlaceBuilding,
+  type ToolState,
+} from "../../types/park/tool";
 
 const GHOST_VALID_COLOR = 0x2e6e62;
 const GHOST_INVALID_COLOR = 0xdc2626;

@@ -1,6 +1,6 @@
 import type { MapResponse } from "@app/shared-types";
 import { InfrastructureKind as ProtoInfrastructureKind } from "@app/shared-types";
-import type { InfrastructureKind, TerrainMaterial } from "../rendering/grid";
+import type { InfrastructureKind, TerrainMaterial } from "../../rendering/grid";
 
 export interface ParkGrid {
   terrain: TerrainMaterial[][];
