@@ -446,25 +446,32 @@ fn best_destination(
         .keys()
         .filter(|&&cell| cell != old_cell)
         .filter_map(|&cell| {
-            let (_, movement_cost) = park_map.find_path(old_cell, cell)?;
             let building = adjacent_building(park_map, cell);
             let queue = building.and_then(|b| queues.get(&b.building_id));
             if queue.is_some_and(|q| q.is_full(diameter)) {
                 return None;
             }
+            // A building with an active queue is never targeted at its door — TPM-156:
+            // the real destination is the queue's entrance (chain tail), so a visitor
+            // walks to the back of the line instead of cutting straight to the front.
+            let target_cell = match queue {
+                Some(q) if !q.chain.is_empty() => *q.chain.last().unwrap(),
+                _ => cell,
+            };
+            let (_, movement_cost) = park_map.find_path(old_cell, target_cell)?;
             let template = building.and_then(|b| catalog.get(&b.template_id));
             let utility = template.map(|t| template_utility(v, t)).unwrap_or(0.0);
             let affinity = template
                 .map(|template| affinity_for(&v.profile, &template.tags))
                 .unwrap_or(AFFINITY_DEFAULT);
-            let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
+            let novelty = novelty_for(v.last_visited.get(&target_cell).copied(), current_tick);
             let wait = match (queue, template) {
                 (Some(queue), Some(t)) => estimated_wait_for(queue, t),
                 _ => 0.0,
             };
             let cost = movement_cost as f32 + wait;
             let score = score_for(utility, affinity, novelty, cost);
-            Some((cell, score))
+            Some((target_cell, score))
         })
         .filter(|&(_, score)| score > 0.0)
         .max_by(|a, b| a.1.total_cmp(&b.1))
@@ -1914,6 +1921,69 @@ mod tests {
             );
 
             assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_targets_the_queue_entrance_never_the_door_adjacent_cell() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(
+                1,
+                0,
+                0,
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId {
+                        building_id: "coaster".into(),
+                        template_id: "coaster".into(),
+                    },
+                },
+            ); // head of the chain, adjacent to the building's door
+            park_map.set_infrastructure(
+                2,
+                0,
+                0,
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId {
+                        building_id: "coaster".into(),
+                        template_id: "coaster".into(),
+                    },
+                },
+            ); // tail: the actual entrance
+            park_map.set_building(
+                1,
+                1,
+                0,
+                BuildingId {
+                    building_id: "coaster".into(),
+                    template_id: "coaster".into(),
+                },
+            ); // adjacent to the head, (1,0,0)
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "coaster".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0), (2, 0, 0)], // head -> tail
+                    occupants: Default::default(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0);
+
+            let result = best_destination(
+                &v,
+                &park_map,
+                &catalog_with_two_identical_coasters(),
+                &queues,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(
+                result,
+                Some((2, 0, 0)),
+                "must target the queue's tail (entrance), never the door-adjacent head cell"
+            );
         }
 
         #[test]

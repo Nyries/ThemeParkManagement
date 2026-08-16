@@ -153,11 +153,15 @@ impl ParkMap {
     /// Picks a random walkable cell reachable from `exclude`, or `None` if none is —
     /// existing in `self.infrastructure` isn't enough, it must have an actual path.
     pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
+        // Queue cells are never a plain wander target — reaching one only makes sense
+        // via joining that queue (TPM-156), not by strolling into the middle of a line.
         let mut candidates: Vec<(i32, i32, i32)> = self
             .infrastructure
-            .keys()
-            .filter(|&&cell| cell != exclude)
-            .copied()
+            .iter()
+            .filter(|&(&cell, shape)| {
+                cell != exclude && !matches!(shape, InfrastructureShape::Queue { .. })
+            })
+            .map(|(&cell, _)| cell)
             .collect();
         candidates.shuffle(&mut rand::thread_rng());
 
@@ -522,6 +526,24 @@ mod tests {
             let result = map.random_walkable_cell((0, 0, 0));
 
             assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_never_picks_a_queue_cell_as_a_plain_wander_target() {
+            let mut map = build_reachable_test_map();
+            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            map.set_infrastructure(
+                1,
+                0,
+                0,
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId::default(),
+                },
+            );
+
+            let result = map.random_walkable_cell((0, 0, 0));
+
+            assert_eq!(result, None); // the only other cell is a queue cell, must be excluded
         }
     }
 
