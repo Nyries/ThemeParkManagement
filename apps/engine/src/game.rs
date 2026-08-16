@@ -131,6 +131,7 @@ impl GameWorld {
                 &self.park_map,
                 &self.building_catalog,
                 &mut self.queues,
+                &mut self.balance,
                 old_cell,
                 self.tick_count,
             );
@@ -361,12 +362,14 @@ fn adjacent_building(park_map: &ParkMap, cell: (i32, i32, i32)) -> Option<&Build
         .find_map(|(dx, dy)| park_map.get_building(x + dx, y + dy, z))
 }
 
-/// Applies needs relief for the building adjacent to a just-reached cell (if any) and
-/// records the visit for the novelty factor. No-op if nothing is adjacent.
+/// Applies needs relief for the building adjacent to a just-reached cell (if any),
+/// credits its `price_per_use` to `balance` (TPM-21), and records the visit for the
+/// novelty factor. No-op if nothing is adjacent.
 fn relieve_needs_at_arrival(
     v: &mut Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
+    balance: &mut f64,
     cell: (i32, i32, i32),
     current_tick: u64,
 ) {
@@ -400,6 +403,11 @@ fn relieve_needs_at_arrival(
             .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
         total_gain += gain_for(ENTERTAINMENT_RELIEF, level_before, threshold);
         relieve_need(&mut v.needs, ENTERTAINMENT, ENTERTAINMENT_RELIEF);
+    } else if let Some(price) = template.price_per_use {
+        // TPM-21/TPM-41: only ShopUtility is credited here — an Attraction's
+        // price_per_use is always null, its revenue is the entry ticket (driven by
+        // cumulative satisfaction), a separate mechanism not implemented yet.
+        *balance += price as f64;
     }
 
     v.satisfaction = update_satisfaction(v.satisfaction, total_gain, 0.0);
@@ -475,6 +483,7 @@ fn assign_new_target_if_arrived(
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
     queues: &mut HashMap<String, QueueState>,
+    balance: &mut f64,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) {
@@ -489,7 +498,7 @@ fn assign_new_target_if_arrived(
             // Queue filled up on the way here: renoncement, fall through and re-target.
         }
 
-        relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
+        relieve_needs_at_arrival(v, park_map, catalog, balance, old_cell, current_tick);
 
         let new_target = best_destination(v, park_map, catalog, queues, old_cell, current_tick)
             .or_else(|| park_map.random_walkable_cell(old_cell))
@@ -1783,6 +1792,53 @@ mod tests {
             .unwrap()
         }
 
+        fn catalog_with_priced_snack_stand() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "snack_stand",
+                            "name": "Snack Stand",
+                            "category": "ShopUtility",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "short_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": { "hunger": 40 },
+                            "tags": [],
+                            "price_per_use": 8
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
+        // TPM-41: an Attraction's `price_per_use` is always null in the real catalog, but
+        // this fixture sets one anyway to prove the credit is gated on category, not just
+        // on the field being present.
+        fn catalog_with_priced_attraction() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "coaster",
+                            "name": "Coaster",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "long_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": {},
+                            "tags": ["thrill"],
+                            "price_per_use": 15
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
         fn catalog_with_thrill_and_family_rides() -> BuildingCatalog {
             BuildingCatalog::load(CatalogSource::Embedded(
                 r#"{
@@ -1902,6 +1958,7 @@ mod tests {
                 &park_map,
                 &catalog_with_two_identical_coasters(),
                 &mut queues,
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2036,6 +2093,7 @@ mod tests {
                 &park_map,
                 &catalog_with_attraction_with_no_declared_needs_relief(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2079,6 +2137,7 @@ mod tests {
                 &park_map,
                 &catalog_with_thrill_and_family_rides(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2097,6 +2156,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2115,6 +2175,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2135,6 +2196,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2155,6 +2217,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2186,6 +2249,7 @@ mod tests {
                 &park_map,
                 &catalog_with_snack_stand(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 0,
             );
@@ -2216,6 +2280,7 @@ mod tests {
                 &park_map,
                 &catalog_with_snack_stand(),
                 &mut HashMap::new(),
+                &mut 0.0,
                 (0, 0, 0),
                 42,
             );
@@ -2223,6 +2288,69 @@ mod tests {
             assert_eq!(v.needs[crate::visitor::HUNGER], 50.0); // 90 - 40 relief
             assert!(v.satisfaction > 0.0, "relief should have granted a gain");
             assert_eq!(v.last_visited.get(&(0, 0, 0)), Some(&42));
+        }
+
+        #[test]
+        fn test_credits_the_balance_with_the_shoputilitys_price_per_use_on_arrival() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_building(
+                1,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "snack_stand".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0);
+            let mut balance = 1000.0;
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_priced_snack_stand(),
+                &mut HashMap::new(),
+                &mut balance,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(balance, 1008.0); // 1000 + price_per_use (8)
+        }
+
+        #[test]
+        fn test_never_credits_the_balance_for_an_attraction_even_with_a_declared_price_per_use() {
+            // TPM-41: an Attraction's revenue is the entry ticket (satisfaction-driven), a
+            // separate mechanism not implemented yet — never this direct per-use credit.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_building(
+                1,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0);
+            let mut balance = 1000.0;
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_priced_attraction(),
+                &mut HashMap::new(),
+                &mut balance,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(balance, 1000.0);
         }
 
         #[test]
@@ -2245,6 +2373,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut queues,
+                &mut 0.0,
                 (2, 0, 0),
                 0,
             );
@@ -2282,6 +2411,7 @@ mod tests {
                 &park_map,
                 &empty_catalog(),
                 &mut queues,
+                &mut 0.0,
                 (2, 0, 0),
                 0,
             );
