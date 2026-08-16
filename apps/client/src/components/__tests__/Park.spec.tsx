@@ -738,9 +738,9 @@ describe("Park", () => {
       );
 
       const target = container.querySelector('[tabindex="0"]')!;
-      const cwButton = container.querySelector('button[aria-label="Tourner (R)"]')!;
+      const cwButton = container.querySelector('button[aria-label="Rotation (R)"]')!;
       const ccwButton = container.querySelector(
-        'button[aria-label="Tourner dans l\'autre sens (Maj+R)"]',
+        'button[aria-label="Rotation inversée (Maj+R)"]',
       )!;
 
       expect(cwButton).not.toHaveClass("translate-y-px");

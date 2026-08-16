@@ -26,9 +26,9 @@ describe("SecondaryToolbar", () => {
   it("shows both rotate buttons when the building tool is active", () => {
     render(<SecondaryToolbar mode="building" onRotate={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "Tourner (R)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rotation (R)" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Tourner dans l'autre sens (Maj+R)" }),
+      screen.getByRole("button", { name: "Rotation inversée (Maj+R)" }),
     ).toBeInTheDocument();
   });
 
@@ -36,7 +36,7 @@ describe("SecondaryToolbar", () => {
     const onRotate = vi.fn();
     render(<SecondaryToolbar mode="building" onRotate={onRotate} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Tourner (R)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rotation (R)" }));
 
     expect(onRotate).toHaveBeenCalledWith(false);
   });
@@ -46,7 +46,7 @@ describe("SecondaryToolbar", () => {
     render(<SecondaryToolbar mode="building" onRotate={onRotate} />);
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Tourner dans l'autre sens (Maj+R)" }),
+      screen.getByRole("button", { name: "Rotation inversée (Maj+R)" }),
     );
 
     expect(onRotate).toHaveBeenCalledWith(true);

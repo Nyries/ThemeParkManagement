@@ -1,6 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "./ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import type { ToolMode } from "@/park/tool";
 
 interface SecondaryToolbarProps {
@@ -63,27 +69,39 @@ export const SecondaryToolbar = forwardRef<
   }
 
   return (
-    <div className="flex gap-1 rounded-lg border border-border bg-white/80 p-1 shadow-sm backdrop-blur-sm transition-all duration-150 ease-out starting:-translate-y-2 starting:opacity-0">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Tourner (R)"
-        className={pressed === "cw" ? PRESSED_VISUAL_CLASSES : undefined}
-        onClick={() => onRotate(false)}
-      >
-        <RotateCw className="size-4" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Tourner dans l'autre sens (Maj+R)"
-        className={pressed === "ccw" ? PRESSED_VISUAL_CLASSES : undefined}
-        onClick={() => onRotate(true)}
-      >
-        <RotateCcw className="size-4" />
-      </Button>
-    </div>
+    <TooltipProvider>
+      <div className="flex gap-1 rounded-lg border border-border bg-white/80 p-1 shadow-sm backdrop-blur-sm transition-all duration-150 ease-out starting:-translate-y-2 starting:opacity-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Rotation (R)"
+              className={pressed === "cw" ? PRESSED_VISUAL_CLASSES : undefined}
+              onClick={() => onRotate(false)}
+            >
+              <RotateCw className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Rotation (R)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Rotation inversée (Maj+R)"
+              className={pressed === "ccw" ? PRESSED_VISUAL_CLASSES : undefined}
+              onClick={() => onRotate(true)}
+            >
+              <RotateCcw className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Rotation inversée (Maj+R)</TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 });
