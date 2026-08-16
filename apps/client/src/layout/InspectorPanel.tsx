@@ -1,8 +1,18 @@
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import {
+  BUILDING_CATALOG,
+  DEFAULT_BUILDING_ID,
+  type BuildingCategory,
+} from "@/park/buildingCatalog";
 import { DEFAULT_MATERIAL_ID, materialColor, TERRAIN_MATERIALS } from "@/park/materials";
 import type { SelectionInfo } from "@/park/selection";
 import type { ToolState } from "@/park/tool";
+
+const BUILDING_CATEGORIES: { id: BuildingCategory; label: string }[] = [
+  { id: "ShopUtility", label: "Commodités" },
+  { id: "Attraction", label: "Attractions" },
+];
 
 interface InspectorPanelProps {
   selection: SelectionInfo | null;
@@ -73,12 +83,51 @@ function ToolContextContent({
           </div>
         </div>
       );
-    case "building":
+    case "building": {
+      const selectedId = tool.selectedBuildingId ?? DEFAULT_BUILDING_ID;
       return (
-        <h2 className="text-sm font-semibold text-foreground">
-          Catalogue de bâtiments — à venir
-        </h2>
+        <div>
+          <h2 className="mb-2 text-sm font-semibold text-foreground">
+            Catalogue
+          </h2>
+          {BUILDING_CATEGORIES.map((category) => (
+            <div key={category.id} className="mb-3 last:mb-0">
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">
+                {category.label}
+              </h3>
+              <div className="flex flex-col gap-1">
+                {BUILDING_CATALOG.filter(
+                  (building) => building.category === category.id,
+                ).map((building) => {
+                  const active = selectedId === building.templateId;
+                  return (
+                    <button
+                      key={building.templateId}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        onToolChange({
+                          ...tool,
+                          selectedBuildingId: building.templateId,
+                        })
+                      }
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-left text-sm transition-colors",
+                        active
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      {building.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       );
+    }
     case "infrastructure":
       return (
         <h2 className="text-sm font-semibold text-foreground">

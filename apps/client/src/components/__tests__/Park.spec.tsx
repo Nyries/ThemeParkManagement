@@ -336,15 +336,12 @@ describe("Park", () => {
         command: expect.objectContaining({ $case: "placeBuilding" }),
       }),
     );
-    // sit_down_restaurant's stub footprint is an L-shape covering (0,0),
-    // (1,0) and (0,1) of this 2x2 map — (1,1) stays untouched. Cells are
-    // added in (y, x) order, so indices 0-2 are the footprint and index 3
-    // is the untouched corner.
-    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 3)) {
+    // sit_down_restaurant's catalogue footprint (the default building) is a
+    // 2x2 square covering the whole map. The first 4 addChild calls are the
+    // grid cells (Graphics), the rest are the axis labels (Text, no `.clear`).
+    for (const [cell] of mockStageAddChild.mock.calls.slice(0, 4)) {
       expect(cell.clear).toHaveBeenCalled();
     }
-    const untouchedCorner = mockStageAddChild.mock.calls[3][0];
-    expect(untouchedCorner.clear).not.toHaveBeenCalled();
   });
 
   it("refuses to place a building whose footprint overlaps existing infrastructure", async () => {
@@ -362,7 +359,7 @@ describe("Park", () => {
     await flushMicrotasks();
 
     // Cells are added in (y, x) order: index 1 is (1,0), part of the
-    // building's L-shaped footprint placed at origin (0,0) below.
+    // building's 2x2 footprint placed at origin (0,0) below.
     // Infrastructure placement is driven by pointerdown (index 2).
     const pathCell = mockStageAddChild.mock.calls[1][0];
     const handlePathCellPointerDown = pathCell.on.mock.calls[2][1];
@@ -405,7 +402,7 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    // (1,0) is part of the building's L-shaped footprint placed at origin
+    // (1,0) is part of the building's 2x2 footprint placed at origin
     // (0,0) below. Terrain application is driven by pointerdown (index 2).
     const waterCell = mockStageAddChild.mock.calls[1][0];
     const handleWaterCellPointerDown = waterCell.on.mock.calls[2][1];
@@ -539,7 +536,7 @@ describe("Park", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    // Origin (0,0) and (1,0) both belong to the L-shaped footprint.
+    // Origin (0,0) and (1,0) both belong to the building's 2x2 footprint.
     const originCell = mockStageAddChild.mock.calls[0][0];
     const secondCell = mockStageAddChild.mock.calls[1][0];
     const handleCellClick = originCell.on.mock.calls[0][1];

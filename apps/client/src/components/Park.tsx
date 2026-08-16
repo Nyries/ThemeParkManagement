@@ -9,6 +9,7 @@ import {
   toScreenY,
 } from "../rendering/grid";
 import { useParkSocket } from "../hooks/useParkSocket";
+import { DEFAULT_BUILDING_ID, findBuildingTemplate } from "../park/buildingCatalog";
 import { mapFromResponse } from "../park/mapFromResponse";
 import { DEFAULT_MATERIAL_ID, isMaterialBuildable } from "../park/materials";
 import { syncVisitorGraphics } from "../park/syncVisitors";
@@ -32,14 +33,6 @@ import { toast } from "sonner";
 import { Rotation } from "@app/shared-types";
 
 const PARK_ID = "default";
-const TEMPLATE_ID = "sit_down_restaurant";
-// Stub footprint until the real catalogue (TPM-163) is wired in — matches
-// "sit_down_restaurant" in apps/engine/assets/catalog/buildings.json.
-const TEMPLATE_FOOTPRINT = [
-  { x: 0, y: 0 },
-  { x: 1, y: 0 },
-  { x: 0, y: 1 },
-];
 
 const GHOST_VALID_COLOR = 0x2e6e62;
 const GHOST_INVALID_COLOR = 0xdc2626;
@@ -252,7 +245,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
         }
 
         const rotation = currentTool.rotation ?? Rotation.ROTATION_DEG_0;
-        const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
+        const template = findBuildingTemplate(
+          currentTool.selectedBuildingId ?? DEFAULT_BUILDING_ID,
+        );
+        const footprint = rotateFootprint(template.footprint, rotation);
         const valid = isFootprintValid(hovered.x, hovered.y, footprint);
 
         const color = valid ? GHOST_VALID_COLOR : GHOST_INVALID_COLOR;
@@ -436,7 +432,10 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
           // dispatcher.
           case "building": {
             const rotation = toolRef.current.rotation ?? Rotation.ROTATION_DEG_0;
-            const footprint = rotateFootprint(TEMPLATE_FOOTPRINT, rotation);
+            const template = findBuildingTemplate(
+              toolRef.current.selectedBuildingId ?? DEFAULT_BUILDING_ID,
+            );
+            const footprint = rotateFootprint(template.footprint, rotation);
 
             if (!isFootprintValid(x, y, footprint)) {
               toast.error("Failed to place the building", {
@@ -449,7 +448,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             response = await placeBuildingAt(
               sendCommand,
               PARK_ID,
-              TEMPLATE_ID,
+              template.templateId,
               x,
               y,
               rotation,
@@ -464,7 +463,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
 
             const key = `${x},${y}`;
             buildings.set(key, {
-              templateId: TEMPLATE_ID,
+              templateId: template.templateId,
               origin: { x, y },
               rotation,
               footprint,

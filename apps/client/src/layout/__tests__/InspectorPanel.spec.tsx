@@ -92,7 +92,7 @@ describe("InspectorPanel", () => {
     });
   });
 
-  it("shows the catalog placeholder when the building tool is active", () => {
+  it("shows the building catalogue, grouped by category, when the building tool is active", () => {
     render(
       <InspectorPanel
         selection={null}
@@ -100,9 +100,61 @@ describe("InspectorPanel", () => {
         onToolChange={vi.fn()}
       />,
     );
+    expect(screen.getByText("Catalogue")).toBeInTheDocument();
+    expect(screen.getByText("Commodités")).toBeInTheDocument();
+    expect(screen.getByText("Attractions")).toBeInTheDocument();
     expect(
-      screen.getByText("Catalogue de bâtiments — à venir"),
+      screen.getByRole("button", { name: "Sit-Down Restaurant" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Roller Coaster" }),
+    ).toBeInTheDocument();
+  });
+
+  it("defaults the selected building to sit_down_restaurant, and reflects an explicit selection", () => {
+    const { rerender } = render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "building" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Sit-Down Restaurant" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    rerender(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "building", selectedBuildingId: "roller_coaster" }}
+        onToolChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Roller Coaster" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Sit-Down Restaurant" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("selects a building when clicking it", async () => {
+    const onToolChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <InspectorPanel
+        selection={null}
+        tool={{ mode: "building" }}
+        onToolChange={onToolChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Ferris Wheel" }));
+
+    expect(onToolChange).toHaveBeenCalledWith({
+      mode: "building",
+      selectedBuildingId: "ferris_wheel",
+    });
   });
 
   it("shows instructions when the infrastructure tool is active", () => {
