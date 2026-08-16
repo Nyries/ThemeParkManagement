@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     z: v.position.2,
                 }).collect();
         
-                if current_tick % 100 == 0 {
+                if !w.paused && current_tick % 100 == 0 {
                     println!("Tick de simulation en cours... Actuel: {}", current_tick);
                 }
             }
