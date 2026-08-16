@@ -5,8 +5,8 @@ use crate::balance::{
     AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
     K_REPULSION, LATERAL_REPULSION_FACTOR, NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE,
     NEED_GROWTH_FATIGUE_TIME, NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE,
-    NEED_GROWTH_TOILETS_TIME, SATISFACTION_PENALTY_EXPONENT, SATISFACTION_RECENCY_WEIGHT,
-    STEERING_FACTOR, VISIT_DURATION_TICKS,
+    NEED_GROWTH_TOILETS_TIME, NOVELTY_FLOOR, NOVELTY_RECOVERY_TICKS, SATISFACTION_PENALTY_EXPONENT,
+    SATISFACTION_RECENCY_WEIGHT, STEERING_FACTOR, VISIT_DURATION_TICKS,
 };
 
 pub type VisitorId = String;
@@ -37,6 +37,9 @@ pub struct Visitor {
     pub comfort_thresholds: HashMap<String, f32>,
     /// Cumulative satisfaction, exponential moving average of (gain - penalty). 0 = neutral.
     pub satisfaction: f32,
+    /// Tick at which each cell was last targeted, for the novelty factor in destination
+    /// scoring — short-term memory scoped to the visit, never persisted across visits.
+    pub last_visited: HashMap<(i32, i32, i32), u64>,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -170,6 +173,37 @@ pub fn gain_for(relief_intensity: f32, level_before_relief: f32, threshold: f32)
 /// recent ticks carry over the visit's history.
 pub fn update_satisfaction(current: f32, gain: f32, penalty: f32) -> f32 {
     current * (1.0 - SATISFACTION_RECENCY_WEIGHT) + (gain - penalty) * SATISFACTION_RECENCY_WEIGHT
+}
+
+/// Destination score's `utilité` term: dot product between the visitor's need levels
+/// and a building's `needs_relief` vector — how useful this building would be right
+/// now. See Wiki des Formules §Choix de destination.
+pub fn utility_for(needs: &HashMap<String, f32>, needs_relief: &HashMap<String, u32>) -> f32 {
+    needs_relief
+        .iter()
+        .map(|(need, &relief)| needs.get(need).copied().unwrap_or(0.0) * relief as f32)
+        .sum()
+}
+
+/// Destination score's `nouveauté` term: 1.0 if this cell was never targeted before
+/// (or the memory of it has fully recovered), otherwise falls to `NOVELTY_FLOOR` right
+/// after a visit and climbs linearly back to 1.0 over `NOVELTY_RECOVERY_TICKS`.
+pub fn novelty_for(last_visited_tick: Option<u64>, current_tick: u64) -> f32 {
+    let Some(last_tick) = last_visited_tick else {
+        return 1.0;
+    };
+    let elapsed = current_tick.saturating_sub(last_tick) as f32;
+    (NOVELTY_FLOOR + (1.0 - NOVELTY_FLOOR) * (elapsed / NOVELTY_RECOVERY_TICKS)).min(1.0)
+}
+
+/// Combines the destination score's four terms: `score = utilité × affinité ×
+/// nouveauté / coût`. Returns 0 for a non-positive cost (unreachable/degenerate)
+/// instead of dividing by it, so callers can compare scores without special-casing.
+pub fn score_for(utility: f32, affinity: f32, novelty: f32, cost: f32) -> f32 {
+    if cost <= 0.0 {
+        return 0.0;
+    }
+    (utility * affinity * novelty) / cost
 }
 
 impl Visitor {
@@ -441,6 +475,82 @@ mod tests {
             visitor.satisfaction = -60.0;
 
             assert!(visitor.should_leave_early());
+        }
+    }
+
+    mod destination_score {
+        use super::*;
+
+        #[test]
+        fn test_utility_for_is_the_dot_product_of_needs_and_relief() {
+            let needs = HashMap::from([(HUNGER.to_string(), 80.0), (THIRST.to_string(), 20.0)]);
+            let relief = HashMap::from([(HUNGER.to_string(), 30), (THIRST.to_string(), 10)]);
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 80.0 * 30.0 + 20.0 * 10.0);
+        }
+
+        #[test]
+        fn test_utility_for_ignores_relief_for_untracked_needs() {
+            let needs = HashMap::new();
+            let relief = HashMap::from([(HUNGER.to_string(), 30)]);
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_utility_for_is_zero_with_no_relief() {
+            let needs = HashMap::from([(HUNGER.to_string(), 80.0)]);
+            let relief = HashMap::new();
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_novelty_for_is_full_when_never_visited() {
+            let result = novelty_for(None, 1000);
+
+            assert_eq!(result, 1.0);
+        }
+
+        #[test]
+        fn test_novelty_for_is_at_the_floor_right_after_a_visit() {
+            let result = novelty_for(Some(1000), 1000);
+
+            assert_eq!(result, NOVELTY_FLOOR);
+        }
+
+        #[test]
+        fn test_novelty_for_recovers_linearly_toward_one() {
+            let halfway = novelty_for(Some(0), 100); // half of NOVELTY_RECOVERY_TICKS (200)
+
+            let expected = NOVELTY_FLOOR + (1.0 - NOVELTY_FLOOR) * 0.5;
+            assert!((halfway - expected).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_novelty_for_caps_at_one_past_the_recovery_window() {
+            let result = novelty_for(Some(0), 10_000);
+
+            assert_eq!(result, 1.0);
+        }
+
+        #[test]
+        fn test_score_for_combines_the_four_terms() {
+            let result = score_for(10.0, 2.0, 0.5, 5.0);
+
+            assert_eq!(result, (10.0 * 2.0 * 0.5) / 5.0);
+        }
+
+        #[test]
+        fn test_score_for_is_zero_for_a_non_positive_cost() {
+            assert_eq!(score_for(10.0, 1.0, 1.0, 0.0), 0.0);
+            assert_eq!(score_for(10.0, 1.0, 1.0, -1.0), 0.0);
         }
     }
 

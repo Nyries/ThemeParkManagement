@@ -51,4 +51,14 @@ pub const SATISFACTION_RECENCY_WEIGHT: f32 = 0.1;
 /// (stricter than the ordinary per-need penalty, sunk cost of the paid ticket).
 pub const EARLY_DEPARTURE_SATISFACTION_THRESHOLD: f32 = -50.0;
 
+/// 🔶 PLACEHOLDER — affinity multiplier is fixed at neutral (no bonus/malus) until
+/// TPM-48 provides real per-profile affinity vectors. See Wiki des Formules §Choix de
+/// destination.
+pub const AFFINITY_DEFAULT: f32 = 1.0;
+
+/// 🔶 PLACEHOLDER — novelty multiplier right after visiting a target, and the number
+/// of ticks it takes to linearly recover back to 1.0.
+pub const NOVELTY_FLOOR: f32 = 0.3;
+pub const NOVELTY_RECOVERY_TICKS: f32 = 200.0;
+
 // Calibrated
