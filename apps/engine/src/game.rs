@@ -1,10 +1,21 @@
 use std::collections::{HashMap, HashSet};
 
+use rand::Rng;
+
 use crate::{
-    balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS},
-    building_template::{BuildingCatalog, CatalogSource},
-    map::{Bounds3d, ParkMap, base_speed_for},
-    visitor::{Visitor, VisitorId, repulsion_force, speed_at},
+    balance::{
+        AFFINITY_DEFAULT, COMFORT_THRESHOLD_DEFAULT, DENSITY_CAP, DETOUR_BIAS_STRENGTH,
+        DETOUR_DENSITY_THRESHOLD, DETOUR_LOOKAHEAD_CELLS, ENTERTAINMENT_RELIEF,
+        SPAWN_INTERVAL_TICKS, STALL_DISTANCE_EPSILON, STALL_TICKS_THRESHOLD,
+        UNSTALL_IMPULSE_MAGNITUDE,
+    },
+    building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
+    map::{BuildingId, Bounds3d, ParkMap, base_speed_for},
+    visitor::{
+        ENTERTAINMENT, Visitor, VisitorId, gain_for, grow_needs, lane_bias_strength,
+        lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
+        repulsion_force, score_for, speed_at, update_satisfaction, utility_for, weighted_lane_bias,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -92,14 +103,38 @@ impl GameWorld {
         for v in self.visitors.iter_mut() {
             v.ticks_since_spawn += 1;
             let old_cell = cell_of(v.position);
+            let position_before_advance = v.position;
 
             redirect_if_expired(v, &self.park_map, old_cell, exit);
-            assign_new_target_if_arrived(v, &self.park_map, old_cell);
+            redirect_if_leaving_early(v, &self.park_map, old_cell, exit);
+            assign_new_target_if_arrived(
+                v,
+                &self.park_map,
+                &self.building_catalog,
+                old_cell,
+                self.tick_count,
+            );
             recompute_path_if_blocked(v, &self.park_map, old_cell);
 
-            let speed = compute_speed(&self.park_map, &self.density, old_cell);
-            let repulsion = compute_repulsion(v, &self.density, &positions, old_cell);
-            v.advance(speed, dt, repulsion);
+            let local_density = local_density_at(&self.density, old_cell);
+            let speed = compute_speed(&self.park_map, local_density, old_cell);
+            let mut repulsion = compute_repulsion(v, &self.density, &positions, old_cell);
+            repulsion = add_vec(
+                repulsion,
+                compute_lane_bias(v, &self.park_map, &self.density, old_cell),
+            );
+            repulsion = add_vec(
+                repulsion,
+                compute_detour_bias(v, &self.park_map, &self.density),
+            );
+            let lateral_factor = lateral_repulsion_factor_for(local_density);
+            v.advance(speed, dt, repulsion, lateral_factor);
+            clamp_to_walkable_ground(v, &self.park_map, position_before_advance);
+
+            let moved = distance_moved(position_before_advance, v.position);
+            update_stall_tracking(v, &self.park_map, speed, moved);
+
+            update_needs_and_satisfaction(v, moved);
 
             let new_cell = cell_of(v.position);
             update_density_and_dirty_chunks(
@@ -115,7 +150,7 @@ impl GameWorld {
         self.metrics.visitors_in_park = self.visitors.len();
         self.tick_count += 1;
 
-        if self.tick_count.is_multiple_of(SPAWN_INTERVAL_TICKS) {
+        if self.visitors.len() < 20 && self.tick_count.is_multiple_of(SPAWN_INTERVAL_TICKS) {
             self.spawn_visitor();
         }
     }
@@ -133,15 +168,13 @@ impl GameWorld {
 
         let id = uuid::Uuid::new_v4().to_string();
 
-        self.visitors.push(Visitor {
-            id: id.clone(),
-            position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32),
-            path,
-            target,
-            ticks_since_spawn: 0,
-            heading: (0.0, 0.0, 0.0),
-            is_leaving: false,
-        });
+        let mut visitor = Visitor::new(
+            id.clone(),
+            (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32),
+        );
+        visitor.path = path;
+        visitor.target = target;
+        self.visitors.push(visitor);
 
         self.density.entry(entrance).or_default().push(id);
     }
@@ -160,6 +193,86 @@ fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
     )
 }
 
+fn distance_moved(before: (f32, f32, f32), after: (f32, f32, f32)) -> f32 {
+    let dx = after.0 - before.0;
+    let dy = after.1 - before.1;
+    let dz = after.2 - before.2;
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// Undoes a tick's movement if it left the visitor's rounded cell off any walkable
+/// infrastructure — lateral repulsion (TPM-32) can push a visitor's continuous position
+/// just past the edge of a path with no clamp on the result. Without this, `old_cell`
+/// (the visitor's last known walkable cell, guaranteed walkable by induction — this
+/// same check ran on every previous tick) reads `base_speed = 0` from `compute_speed`
+/// forever: the visitor would freeze in place with no way back onto the path.
+fn is_walkable_at(park_map: &ParkMap, position: (f32, f32, f32)) -> bool {
+    let cell = cell_of(position);
+    park_map.is_walkable(cell.0, cell.1, cell.2)
+}
+
+/// Undoes a tick's movement if it left the visitor's rounded cell off any walkable
+/// infrastructure — lateral repulsion (TPM-32) can push a visitor's continuous
+/// position just past the edge of a path with no clamp on the result. Rather than a
+/// flat revert (which would freeze a visitor dead against a wall for as long as a
+/// crowd keeps pushing them into it), this first tries sliding along a single axis —
+/// keeping whichever of the tick's x/y progress alone still lands on walkable ground —
+/// so a visitor pinned sideways can still creep forward, the way tile collision
+/// resolution usually works. Only reverts fully to `before` if neither axis works.
+fn clamp_to_walkable_ground(v: &mut Visitor, park_map: &ParkMap, before: (f32, f32, f32)) {
+    let after = v.position;
+    if is_walkable_at(park_map, after) {
+        return;
+    }
+
+    let x_only = (after.0, before.1, before.2);
+    if is_walkable_at(park_map, x_only) {
+        v.position = x_only;
+        return;
+    }
+
+    let y_only = (before.0, after.1, before.2);
+    if is_walkable_at(park_map, y_only) {
+        v.position = y_only;
+        return;
+    }
+
+    v.position = before;
+}
+
+/// Tracks head-on repulsion standoffs: a visitor with a nonzero speed that still
+/// barely moved this tick is one tick closer to being considered stalled. Any real
+/// progress (or having no path to walk in the first place) resets the counter. Once
+/// stalled long enough, nudges the visitor sideways to break the deadlock.
+fn update_stall_tracking(v: &mut Visitor, park_map: &ParkMap, speed: f32, moved: f32) {
+    if speed > 0.0 && moved < STALL_DISTANCE_EPSILON && !v.path.is_empty() {
+        v.stall_ticks += 1;
+    } else {
+        v.stall_ticks = 0;
+    }
+
+    if v.stall_ticks >= STALL_TICKS_THRESHOLD {
+        apply_unstall_impulse(v, park_map);
+        v.stall_ticks = 0;
+    }
+}
+
+/// Nudges a stalled visitor by a small random offset, only committing it if the
+/// resulting cell is still walkable — breaks a symmetric head-on repulsion deadlock
+/// (see `update_stall_tracking`) without a real yielding rule (none exists yet).
+fn apply_unstall_impulse(v: &mut Visitor, park_map: &ParkMap) {
+    let angle: f32 = rand::thread_rng().gen_range(0.0..std::f32::consts::TAU);
+    let candidate = (
+        v.position.0 + angle.cos() * UNSTALL_IMPULSE_MAGNITUDE,
+        v.position.1 + angle.sin() * UNSTALL_IMPULSE_MAGNITUDE,
+        v.position.2,
+    );
+    let candidate_cell = cell_of(candidate);
+    if park_map.is_walkable(candidate_cell.0, candidate_cell.1, candidate_cell.2) {
+        v.position = candidate;
+    }
+}
+
 fn redirect_if_expired(
     v: &mut Visitor,
     park_map: &ParkMap,
@@ -174,9 +287,147 @@ fn redirect_if_expired(
     }
 }
 
-fn assign_new_target_if_arrived(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32)) {
+/// Redirects a visitor toward the exit once their cumulative satisfaction has
+/// collapsed net (TPM-44) — stricter departure trigger than plain visit expiry
+/// (`redirect_if_expired`), same redirection mechanics.
+fn redirect_if_leaving_early(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    old_cell: (i32, i32, i32),
+    exit: Option<(i32, i32, i32)>,
+) {
+    let Some(exit) = exit else { return };
+    if v.should_leave_early() && !v.is_leaving {
+        v.is_leaving = true;
+        v.target = exit;
+        v.path = park_map.path_excluding_start(old_cell, exit);
+    }
+}
+
+/// Grows every core need by the distance moved this tick, then rolls the resulting
+/// per-need penalties into cumulative satisfaction. No gain side yet — that only
+/// happens when a visitor actually relieves a need at a building (TPM-44 step 5).
+fn update_needs_and_satisfaction(v: &mut Visitor, distance_moved: f32) {
+    grow_needs(&mut v.needs, distance_moved);
+
+    let total_penalty: f32 = v
+        .needs
+        .iter()
+        .map(|(need, &level)| {
+            let threshold = v
+                .comfort_thresholds
+                .get(need)
+                .copied()
+                .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+            penalty_for(level, threshold)
+        })
+        .sum();
+
+    v.satisfaction = update_satisfaction(v.satisfaction, 0.0, total_penalty);
+}
+
+/// A visitor never stands on a building cell (buildings carry no infrastructure, cf.
+/// `is_walkable`), so "using" one means standing on an adjacent walkable cell.
+fn adjacent_building(park_map: &ParkMap, cell: (i32, i32, i32)) -> Option<&BuildingId> {
+    let (x, y, z) = cell;
+    [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .find_map(|(dx, dy)| park_map.get_building(x + dx, y + dy, z))
+}
+
+/// Applies the needs relief for the building adjacent to a just-reached cell (if any),
+/// rolls the resulting gain into satisfaction, and records the visit for the novelty
+/// factor (TPM-44 §Pathfinding piloté par les besoins). No-op if nothing is adjacent.
+fn relieve_needs_at_arrival(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    cell: (i32, i32, i32),
+    current_tick: u64,
+) {
+    let Some(building) = adjacent_building(park_map, cell) else {
+        return;
+    };
+    let Some(template) = catalog.get(&building.template_id) else {
+        return;
+    };
+
+    let mut total_gain = 0.0;
+    for (need, &relief) in &template.needs_relief {
+        let level_before = v.needs.get(need).copied().unwrap_or(0.0);
+        let threshold = v
+            .comfort_thresholds
+            .get(need)
+            .copied()
+            .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+        total_gain += gain_for(relief as f32, level_before, threshold);
+        relieve_need(&mut v.needs, need, relief as f32);
+    }
+
+    // Entertainment isn't declared per-template like the other needs — any Attraction
+    // relieves it generically (Wiki des Formules §Besoins et satisfaction).
+    if template.category == BuildingCategory::Attraction {
+        let level_before = v.needs.get(ENTERTAINMENT).copied().unwrap_or(0.0);
+        let threshold = v
+            .comfort_thresholds
+            .get(ENTERTAINMENT)
+            .copied()
+            .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
+        total_gain += gain_for(ENTERTAINMENT_RELIEF, level_before, threshold);
+        relieve_need(&mut v.needs, ENTERTAINMENT, ENTERTAINMENT_RELIEF);
+    }
+
+    v.satisfaction = update_satisfaction(v.satisfaction, total_gain, 0.0);
+    v.last_visited.insert(cell, current_tick);
+}
+
+/// Picks the reachable walkable cell with the best destination score (TPM-44 §Choix de
+/// destination) — `utilité` comes from any building adjacent to the candidate,
+/// `affinité` is fixed at `AFFINITY_DEFAULT` pending TPM-48, `coût` is the A* cost
+/// alone (queue wait time isn't modeled yet, TPM-45). Only candidates with a strictly
+/// positive score are considered — a cell with no relevant building never outscores
+/// staying open to ties, so callers fall back to plain wandering instead.
+fn best_destination(
+    v: &Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    old_cell: (i32, i32, i32),
+    current_tick: u64,
+) -> Option<(i32, i32, i32)> {
+    park_map
+        .infrastructure
+        .keys()
+        .filter(|&&cell| cell != old_cell)
+        .filter_map(|&cell| {
+            let (_, cost) = park_map.find_path(old_cell, cell)?;
+            let needs_relief = adjacent_building(park_map, cell)
+                .and_then(|building| catalog.get(&building.template_id))
+                .map(|template| &template.needs_relief);
+            let utility = needs_relief
+                .map(|relief| utility_for(&v.needs, relief))
+                .unwrap_or(0.0);
+            let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
+            let score = score_for(utility, AFFINITY_DEFAULT, novelty, cost as f32);
+            Some((cell, score))
+        })
+        .filter(|&(_, score)| score > 0.0)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(cell, _)| cell)
+}
+
+fn assign_new_target_if_arrived(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    catalog: &BuildingCatalog,
+    old_cell: (i32, i32, i32),
+    current_tick: u64,
+) {
     if v.path.is_empty() && !v.is_leaving {
-        let new_target = park_map.random_walkable_cell(old_cell).unwrap_or(old_cell);
+        relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
+
+        let new_target = best_destination(v, park_map, catalog, old_cell, current_tick)
+            .or_else(|| park_map.random_walkable_cell(old_cell))
+            .unwrap_or(old_cell);
         v.target = new_target;
         v.path = park_map.path_excluding_start(old_cell, new_target);
     }
@@ -190,16 +441,18 @@ fn recompute_path_if_blocked(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32
     }
 }
 
-fn compute_speed(
-    park_map: &ParkMap,
+fn local_density_at(
     density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
     cell: (i32, i32, i32),
-) -> f32 {
+) -> usize {
+    density.get(&cell).map(|bucket| bucket.len()).unwrap_or(0)
+}
+
+fn compute_speed(park_map: &ParkMap, local_density: usize, cell: (i32, i32, i32)) -> f32 {
     let base_speed = park_map
         .get_infrastructure(cell.0, cell.1, cell.2)
         .map(base_speed_for)
         .unwrap_or(0.0);
-    let local_density = density.get(&cell).map(|bucket| bucket.len()).unwrap_or(0);
     speed_at(base_speed, local_density)
 }
 
@@ -229,6 +482,97 @@ fn compute_repulsion(
         }
     }
     repulsion
+}
+
+fn add_vec(a: (f32, f32, f32), b: (f32, f32, f32)) -> (f32, f32, f32) {
+    (a.0 + b.0, a.1 + b.1, a.2 + b.2)
+}
+
+/// Steers a visitor toward whichever of the two cells to either side of its current
+/// direction of travel is less crowded — proactive spreading across a wide path,
+/// unlike `compute_repulsion` which only reacts within `AVOIDING_RADIUS` (a visitor
+/// walking single-file down the centre of a 2-3-wide path can stay just far enough
+/// from anyone else to never trigger that at all). Reuses the same per-cell `density`
+/// map rather than a new distance-based sensing radius.
+fn compute_lane_bias(
+    v: &Visitor,
+    park_map: &ParkMap,
+    density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
+    cell: (i32, i32, i32),
+) -> (f32, f32, f32) {
+    let Some(&next) = v.path.first() else {
+        return (0.0, 0.0, 0.0);
+    };
+    let next_f = (next.0 as f32, next.1 as f32, next.2 as f32);
+    let forward = crate::visitor::direction(v.position, next_f);
+    let Some(perp) = perpendicular_of(forward) else {
+        return (0.0, 0.0, 0.0);
+    };
+
+    let left_cell = (
+        cell.0 + perp.0.round() as i32,
+        cell.1 + perp.1.round() as i32,
+        cell.2,
+    );
+    let right_cell = (
+        cell.0 - perp.0.round() as i32,
+        cell.1 - perp.1.round() as i32,
+        cell.2,
+    );
+
+    let density_if_walkable = |c: (i32, i32, i32)| -> Option<usize> {
+        park_map
+            .is_walkable(c.0, c.1, c.2)
+            .then(|| local_density_at(density, c))
+    };
+
+    let strength = lane_bias_strength(density_if_walkable(left_cell), density_if_walkable(right_cell));
+    (perp.0 * strength, perp.1 * strength, 0.0)
+}
+
+/// Anticipatory counterpart to `compute_lane_bias` (TPM-182 option A, lightweight
+/// detour patch): rather than reacting only once a visitor is already beside a
+/// crowded cell, scans up to `DETOUR_LOOKAHEAD_CELLS` cells ahead along the
+/// already-computed `path` for a jam building up further down a wide corridor, and
+/// steers toward whichever side has a walkable, less-congested parallel cell there.
+/// Deliberately does not touch `path` or `find_path` — the visitor's route is
+/// unchanged, so it naturally rejoins the centre lane once past the congested stretch,
+/// the same way `compute_lane_bias` already lets a visitor drift back once alone again.
+fn compute_detour_bias(
+    v: &Visitor,
+    park_map: &ParkMap,
+    density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
+) -> (f32, f32, f32) {
+    let Some(&next) = v.path.first() else {
+        return (0.0, 0.0, 0.0);
+    };
+    let next_f = (next.0 as f32, next.1 as f32, next.2 as f32);
+    let forward = crate::visitor::direction(v.position, next_f);
+    let Some(perp) = perpendicular_of(forward) else {
+        return (0.0, 0.0, 0.0);
+    };
+    let perp_step = (perp.0.round() as i32, perp.1.round() as i32);
+
+    let density_if_walkable = |c: (i32, i32, i32)| -> Option<usize> {
+        park_map
+            .is_walkable(c.0, c.1, c.2)
+            .then(|| local_density_at(density, c))
+    };
+
+    let mut bias = 0.0;
+    for (i, &ahead) in v.path.iter().take(DETOUR_LOOKAHEAD_CELLS).enumerate() {
+        if local_density_at(density, ahead) < DETOUR_DENSITY_THRESHOLD {
+            continue;
+        }
+        let left = (ahead.0 + perp_step.0, ahead.1 + perp_step.1, ahead.2);
+        let right = (ahead.0 - perp_step.0, ahead.1 - perp_step.1, ahead.2);
+        let weight = 1.0 / (i + 1) as f32; // closer congestion steers harder
+        bias +=
+            weighted_lane_bias(density_if_walkable(left), density_if_walkable(right), DETOUR_BIAS_STRENGTH)
+                * weight;
+    }
+
+    (perp.0 * bias, perp.1 * bias, 0.0)
 }
 
 fn update_density_and_dirty_chunks(
@@ -434,6 +778,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             lone_world.density.insert((0, 0, 0), vec!["lone".into()]);
 
@@ -449,6 +794,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             // v1/v2/v3 n'existent que dans le seau de densité, pas dans self.visitors :
             // ça isole l'effet de densité sur la vitesse sans bruit de répulsion (positions inconnues -> ignorées).
@@ -484,6 +830,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world.visitors.push(Visitor {
                 id: "b".into(),
@@ -493,6 +840,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world
                 .density
@@ -509,6 +857,58 @@ mod tests {
         }
 
         #[test]
+        fn test_tick_never_leaves_a_visitor_on_an_unwalkable_cell_even_under_strong_repulsion() {
+            // Regression: lateral repulsion (TPM-32) has no clamp on its own and can
+            // drift a visitor's continuous position past the edge of a single-wide
+            // path. Packing several neighbors right on top of "a" with a large dt
+            // maximizes that drift; the tick loop must still leave "a" on walkable
+            // ground afterward (snap_back_if_off_path).
+            let mut world = GameWorld::new();
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            // (0,1,0)/(0,-1,0) are deliberately left unwalkable: a single-wide corridor.
+
+            world.visitors.push(Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                target: (1, 0, 0),
+                ..Default::default()
+            });
+            let mut bucket = vec!["a".to_string()];
+            for i in 0..4 {
+                let id = format!("n{i}");
+                world.visitors.push(Visitor {
+                    id: id.clone(),
+                    position: (0.0, 0.01, 0.0), // packed right next to "a"
+                    path: vec![],
+                    target: (0, 0, 0),
+                    ..Default::default()
+                });
+                bucket.push(id);
+            }
+            world.density.insert((0, 0, 0), bucket);
+
+            world.tick(1.0); // large dt to amplify any drift
+
+            let a = world.visitors.iter().find(|v| v.id == "a").unwrap();
+            let cell = (
+                a.position.0.round() as i32,
+                a.position.1.round() as i32,
+                a.position.2.round() as i32,
+            );
+            assert!(
+                world.park_map.is_walkable(cell.0, cell.1, cell.2),
+                "visitor ended up off the path at {:?}",
+                a.position
+            );
+        }
+
+        #[test]
         fn test_tick_does_not_move_visitor_when_no_infrastructure_at_current_cell() {
             let mut world = GameWorld::new();
             // no infrastructure placed anywhere
@@ -521,6 +921,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.tick(1.0);
@@ -580,6 +981,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.park_map.remove_infrasture(1, 0, 0); // simule une modification de carte
@@ -616,6 +1018,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.park_map.remove_infrasture(1, 0, 0);
@@ -660,7 +1063,47 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
+
+            world.tick(0.01);
+
+            let visitor = &world.visitors[0];
+            assert!(visitor.is_leaving);
+            assert_eq!(visitor.target, (0, 0, 0));
+        }
+
+        #[test]
+        fn test_tick_grows_needs_and_updates_satisfaction() {
+            let mut world = GameWorld::new();
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world.visitors.push(Visitor::new("a".into(), (0.0, 0.0, 0.0)));
+
+            world.tick(0.05);
+
+            let visitor = &world.visitors[0];
+            for need in crate::visitor::CORE_NEEDS {
+                assert!(visitor.needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_tick_redirects_dissatisfied_visitor_toward_exit() {
+            let mut world = GameWorld::new();
+            world.park_map.entrance = Some((0, 0, 0));
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
+            let mut visitor = Visitor::new("a".into(), (1.0, 0.0, 0.0));
+            visitor.target = (1, 0, 0);
+            visitor.satisfaction = crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD - 1.0;
+            world.visitors.push(visitor);
 
             world.tick(0.01);
 
@@ -683,7 +1126,8 @@ mod tests {
                 target: (0, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
-                is_leaving: true, // était déjà en train de partir
+                is_leaving: true, // was already leaving
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -732,6 +1176,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.tick(0.01);
@@ -759,6 +1204,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: true,
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -782,6 +1228,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -842,6 +1289,342 @@ mod tests {
         }
     }
 
+    mod redirect_if_leaving_early {
+        use super::*;
+        use crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD;
+
+        fn dissatisfied_visitor_at(position: (i32, i32, i32)) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (position.0 as f32, position.1 as f32, position.2 as f32),
+                path: vec![],
+                target: position,
+                satisfaction: EARLY_DEPARTURE_SATISFACTION_THRESHOLD - 1.0,
+                is_leaving: false,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_there_is_no_exit() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), None);
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_nothing_when_satisfaction_is_above_the_threshold() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+            v.satisfaction = 0.0;
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert!(!v.is_leaving);
+        }
+
+        #[test]
+        fn test_does_not_overwrite_target_when_visitor_is_already_leaving() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+            v.is_leaving = true;
+            v.target = (3, 3, 0);
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.target, (3, 3, 0));
+        }
+
+        #[test]
+        fn test_sets_is_leaving_and_retargets_exit_when_dissatisfied() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((4, 4, 0)));
+
+            assert!(v.is_leaving);
+            assert_eq!(v.target, (4, 4, 0));
+        }
+
+        #[test]
+        fn test_computes_path_toward_exit() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = dissatisfied_visitor_at((0, 0, 0));
+
+            redirect_if_leaving_early(&mut v, &park_map, (0, 0, 0), Some((1, 0, 0)));
+
+            assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+    }
+
+    mod distance_moved {
+        use super::*;
+
+        #[test]
+        fn test_distance_moved_is_zero_when_position_is_unchanged() {
+            let result = distance_moved((1.0, 2.0, 0.0), (1.0, 2.0, 0.0));
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_distance_moved_computes_euclidean_distance() {
+            let result = distance_moved((0.0, 0.0, 0.0), (3.0, 4.0, 0.0));
+
+            assert_eq!(result, 5.0);
+        }
+    }
+
+    mod clamp_to_walkable_ground {
+        use super::*;
+
+        fn visitor_at(position: (f32, f32, f32)) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_does_nothing_when_the_full_move_is_still_walkable() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            let mut v = visitor_at((0.2, 0.1, 0.0)); // rounds to (0,0,0), still on the path
+
+            clamp_to_walkable_ground(&mut v, &park_map, (0.0, 0.0, 0.0));
+
+            assert_eq!(v.position, (0.2, 0.1, 0.0));
+        }
+
+        #[test]
+        fn test_slides_along_x_when_the_y_progress_alone_would_leave_the_path() {
+            // Corridor along x (0,0,0)-(1,0,0): the tick's x progress is legitimate
+            // forward movement, the y drift is lateral repulsion pushing off the edge.
+            // The full move rounds to (1,1,0), never set walkable — but x alone
+            // (1,0,0) is, so the visitor should keep that forward progress.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            let mut v = visitor_at((0.8, 0.6, 0.0));
+
+            clamp_to_walkable_ground(&mut v, &park_map, (0.0, 0.0, 0.0));
+
+            assert_eq!(v.position, (0.8, 0.0, 0.0)); // kept the x progress, y clamped back
+        }
+
+        #[test]
+        fn test_slides_along_y_when_the_x_progress_alone_would_leave_the_path() {
+            // Same idea, corridor along y this time: full move rounds to (1,1,0),
+            // unwalkable; y alone (0,1,0) is walkable, x alone (1,0,0) isn't.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(0, 1, 0, InfrastructureShape::Path);
+            let mut v = visitor_at((0.6, 0.8, 0.0));
+
+            clamp_to_walkable_ground(&mut v, &park_map, (0.0, 0.0, 0.0));
+
+            assert_eq!(v.position, (0.0, 0.8, 0.0)); // kept the y progress, x clamped back
+        }
+
+        #[test]
+        fn test_reverts_fully_when_neither_axis_alone_is_walkable() {
+            // Only (0,0,0) is walkable: both (1,0,0) and (0,1,0) are off-path.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            let mut v = visitor_at((0.6, 0.6, 0.0));
+
+            clamp_to_walkable_ground(&mut v, &park_map, (0.1, 0.1, 0.0));
+
+            assert_eq!(v.position, (0.1, 0.1, 0.0));
+        }
+    }
+
+    mod update_stall_tracking {
+        use super::*;
+
+        fn visitor_with_path() -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path: vec![(1, 0, 0)],
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_increments_stall_ticks_when_speed_is_positive_but_movement_is_negligible() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = visitor_with_path();
+
+            update_stall_tracking(&mut v, &park_map, 1.0, 0.0);
+
+            assert_eq!(v.stall_ticks, 1);
+        }
+
+        #[test]
+        fn test_resets_stall_ticks_on_real_progress() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = visitor_with_path();
+            v.stall_ticks = 5;
+
+            update_stall_tracking(&mut v, &park_map, 1.0, 1.0);
+
+            assert_eq!(v.stall_ticks, 0);
+        }
+
+        #[test]
+        fn test_resets_stall_ticks_when_speed_is_zero() {
+            // A visitor with no infrastructure under them (speed 0) isn't "stalled by
+            // another visitor" — that's a different, already-handled case.
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = visitor_with_path();
+            v.stall_ticks = 5;
+
+            update_stall_tracking(&mut v, &park_map, 0.0, 0.0);
+
+            assert_eq!(v.stall_ticks, 0);
+        }
+
+        #[test]
+        fn test_does_not_count_a_visitor_with_no_path_as_stalled() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let mut v = visitor_with_path();
+            v.path = vec![];
+            v.stall_ticks = 5;
+
+            update_stall_tracking(&mut v, &park_map, 1.0, 0.0);
+
+            assert_eq!(v.stall_ticks, 0);
+        }
+
+        #[test]
+        fn test_applies_an_impulse_and_resets_the_counter_once_the_threshold_is_reached() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            let mut v = visitor_with_path();
+            v.stall_ticks = STALL_TICKS_THRESHOLD - 1;
+
+            update_stall_tracking(&mut v, &park_map, 1.0, 0.0);
+
+            assert_eq!(v.stall_ticks, 0);
+        }
+    }
+
+    mod apply_unstall_impulse {
+        use super::*;
+
+        #[test]
+        fn test_moves_within_the_impulse_magnitude_when_the_nudge_stays_walkable() {
+            // A wide-open walkable area: any angle keeps the candidate cell walkable.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            for x in -2..=2 {
+                for y in -2..=2 {
+                    park_map.set_infrastructure(x, y, 0, InfrastructureShape::Path);
+                }
+            }
+            let mut v = Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                ..Default::default()
+            };
+
+            apply_unstall_impulse(&mut v, &park_map);
+
+            let moved = distance_moved((0.0, 0.0, 0.0), v.position);
+            assert!(moved > 0.0, "the visitor should have been nudged");
+            assert!(moved <= UNSTALL_IMPULSE_MAGNITUDE + 1e-5);
+        }
+
+        #[test]
+        fn test_never_commits_a_move_that_leaves_walkable_ground_even_near_an_edge() {
+            // Only (0,0,0) is walkable — (1,0,0) deliberately isn't. Starting close to
+            // that edge means some (but not all) random angles would cross it; run
+            // enough trials to exercise both the commit and the rejection branch, and
+            // check the invariant holds every time rather than asserting one outcome.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+
+            for _ in 0..200 {
+                let mut v = Visitor {
+                    id: "a".into(),
+                    position: (0.42, 0.0, 0.0),
+                    ..Default::default()
+                };
+
+                apply_unstall_impulse(&mut v, &park_map);
+
+                let cell = (
+                    v.position.0.round() as i32,
+                    v.position.1.round() as i32,
+                    v.position.2.round() as i32,
+                );
+                assert!(
+                    park_map.is_walkable(cell.0, cell.1, cell.2),
+                    "landed at {:?}",
+                    v.position
+                );
+            }
+        }
+    }
+
+    mod update_needs_and_satisfaction {
+        use super::*;
+
+        #[test]
+        fn test_grows_every_core_need() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            for need in crate::visitor::CORE_NEEDS {
+                assert!(v.needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_satisfaction_stays_neutral_while_all_needs_are_comfortable() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            // A single tick of growth from 0 stays far under any comfort threshold,
+            // so no penalty should apply yet.
+            assert_eq!(v.satisfaction, 0.0);
+        }
+
+        #[test]
+        fn test_satisfaction_drops_once_a_need_crosses_its_comfort_threshold() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+            for need in crate::visitor::CORE_NEEDS {
+                v.needs.insert(need.to_string(), 100.0);
+                v.comfort_thresholds.insert(need.to_string(), 70.0);
+            }
+
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            assert!(v.satisfaction < 0.0);
+        }
+
+        #[test]
+        fn test_missing_comfort_threshold_falls_back_to_the_default() {
+            let mut v = Visitor::new("a".into(), (0.0, 0.0, 0.0));
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 100.0);
+            v.comfort_thresholds.remove(crate::visitor::HUNGER);
+
+            // Should not panic looking up a missing threshold, and should still
+            // penalize the over-threshold need using COMFORT_THRESHOLD_DEFAULT.
+            update_needs_and_satisfaction(&mut v, 0.0);
+
+            assert!(v.satisfaction < 0.0);
+        }
+    }
+
     mod assign_new_target_if_arrived {
         use super::*;
 
@@ -854,7 +1637,33 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
+        }
+
+        fn empty_catalog() -> BuildingCatalog {
+            BuildingCatalog::default()
+        }
+
+        fn catalog_with_snack_stand() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "snack_stand",
+                            "name": "Snack Stand",
+                            "category": "ShopUtility",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "short_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": { "hunger": 40 },
+                            "tags": []
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
         }
 
         #[test]
@@ -863,7 +1672,7 @@ mod tests {
             let mut v = arrived_visitor();
             v.path = vec![(2, 2, 0)];
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert_eq!(v.path, vec![(2, 2, 0)]);
         }
@@ -874,23 +1683,85 @@ mod tests {
             let mut v = arrived_visitor();
             v.is_leaving = true;
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert!(v.path.is_empty());
             assert_eq!(v.target, (0, 0, 0));
         }
 
         #[test]
-        fn test_assigns_new_target_and_path_when_arrived() {
+        fn test_falls_back_to_random_walk_when_no_building_scores_positively() {
             let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, (0, 0, 0));
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
 
             assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
             assert_eq!(v.path, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_stays_immobile_with_no_panic_when_no_other_cell_is_reachable() {
+            // TPM-157 regression, end-to-end via this call site: the only walkable
+            // cell is the visitor's own. Must not deterministically re-freeze the
+            // visitor by retargeting itself — it should just stay put.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            let mut v = arrived_visitor();
+
+            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+
+            assert!(v.path.is_empty());
+        }
+
+        #[test]
+        fn test_prefers_a_cell_adjacent_to_a_relevant_building_over_plain_wandering() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // plain candidate
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path); // link to keep the path contiguous
+            park_map.set_infrastructure(3, 0, 0, InfrastructureShape::Path); // adjacent to the stand
+            park_map.set_building(
+                4,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "snack_stand".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0); // starving
+
+            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 0);
+
+            assert_eq!(v.target, (3, 0, 0));
+        }
+
+        #[test]
+        fn test_relieves_needs_and_records_the_visit_on_arrival_next_to_a_building() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_building(
+                1,
+                0,
+                0,
+                BuildingId {
+                    building_id: "b1".into(),
+                    template_id: "snack_stand".into(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0);
+            v.comfort_thresholds.insert(crate::visitor::HUNGER.to_string(), 70.0);
+
+            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 42);
+
+            assert_eq!(v.needs[crate::visitor::HUNGER], 50.0); // 90 - 40 relief
+            assert!(v.satisfaction > 0.0, "relief should have granted a gain");
+            assert_eq!(v.last_visited.get(&(0, 0, 0)), Some(&42));
         }
     }
 
@@ -906,6 +1777,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -971,6 +1843,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             }
         }
 
@@ -1007,6 +1880,120 @@ mod tests {
             assert_eq!(
                 repulsion_at_cap, repulsion_over_cap,
                 "neighbors beyond DENSITY_CAP in the same bucket should not affect the result"
+            );
+        }
+    }
+
+    mod compute_detour_bias {
+        use super::*;
+
+        fn visitor_with_path(path: Vec<(i32, i32, i32)>) -> Visitor {
+            Visitor {
+                id: "a".into(),
+                position: (0.0, 0.0, 0.0),
+                path,
+                target: (0, 0, 0),
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn test_zero_bias_when_the_visitor_has_no_path() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let v = visitor_with_path(vec![]);
+            let density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+
+            let bias = compute_detour_bias(&v, &park_map, &density);
+
+            assert_eq!(bias, (0.0, 0.0, 0.0));
+        }
+
+        #[test]
+        fn test_zero_bias_when_nothing_ahead_reaches_the_congestion_threshold() {
+            let park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
+            let v = visitor_with_path(vec![(1, 0, 0), (2, 0, 0), (3, 0, 0)]);
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert((2, 0, 0), vec!["n0".into(), "n1".into()]); // below DETOUR_DENSITY_THRESHOLD (3)
+
+            let bias = compute_detour_bias(&v, &park_map, &density);
+
+            assert_eq!(bias, (0.0, 0.0, 0.0));
+        }
+
+        #[test]
+        fn test_steers_toward_the_walkable_side_when_a_cell_ahead_is_congested_and_the_other_side_is_blocked() {
+            // Straight corridor along x. A jam forms two cells ahead at (2,0,0): the
+            // parallel cell on the left, (2,1,0), is open ground; the right, (2,-1,0),
+            // was never set walkable at all.
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(3, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(2, 1, 0, InfrastructureShape::Path);
+
+            let v = visitor_with_path(vec![(1, 0, 0), (2, 0, 0), (3, 0, 0)]);
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density.insert(
+                (2, 0, 0),
+                vec!["n0".into(), "n1".into(), "n2".into()], // at DETOUR_DENSITY_THRESHOLD
+            );
+
+            let bias = compute_detour_bias(&v, &park_map, &density);
+
+            assert!(bias.1 > 0.0, "should steer toward +y (left/open side), got {bias:?}");
+        }
+
+        #[test]
+        fn test_zero_bias_when_the_only_open_parallel_cell_is_just_as_congested() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(2, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(3, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(2, 1, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(2, -1, 0, InfrastructureShape::Path);
+
+            let v = visitor_with_path(vec![(1, 0, 0), (2, 0, 0), (3, 0, 0)]);
+            let mut density: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            let jam = vec!["n0".into(), "n1".into(), "n2".into()];
+            density.insert((2, 0, 0), jam.clone());
+            density.insert((2, 1, 0), jam.clone());
+            density.insert((2, -1, 0), jam);
+
+            let bias = compute_detour_bias(&v, &park_map, &density);
+
+            assert_eq!(bias, (0.0, 0.0, 0.0));
+        }
+
+        #[test]
+        fn test_closer_congestion_steers_harder_than_farther_congestion() {
+            fn corridor() -> ParkMap {
+                let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, -5, 5, -1, 1));
+                for x in 1..=5 {
+                    park_map.set_infrastructure(x, 0, 0, InfrastructureShape::Path);
+                    park_map.set_infrastructure(x, 1, 0, InfrastructureShape::Path);
+                }
+                park_map
+            }
+            let near = corridor();
+            let far = corridor();
+
+            let path = vec![(1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0), (5, 0, 0)];
+            let v_near = visitor_with_path(path.clone());
+            let v_far = visitor_with_path(path);
+
+            let jam = vec!["n0".into(), "n1".into(), "n2".into()];
+            let mut density_near: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density_near.insert((1, 0, 0), jam.clone()); // 1st cell ahead
+            let mut density_far: HashMap<(i32, i32, i32), Vec<VisitorId>> = HashMap::new();
+            density_far.insert((5, 0, 0), jam); // last cell in the lookahead window
+
+            let bias_near = compute_detour_bias(&v_near, &near, &density_near);
+            let bias_far = compute_detour_bias(&v_far, &far, &density_far);
+
+            assert!(
+                bias_near.1 > bias_far.1,
+                "congestion right ahead ({bias_near:?}) should steer harder than the same congestion \
+                 further out ({bias_far:?})"
             );
         }
     }
@@ -1162,6 +2149,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
             world.density.insert((0, 0, 0), vec!["a".into()]);
 
@@ -1186,6 +2174,7 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             });
 
             world.reset_visitors();

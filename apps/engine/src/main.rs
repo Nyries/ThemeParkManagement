@@ -22,7 +22,7 @@ const HELP_TEXT: &str =
 // template the same way.
 fn load_default_map() -> Result<ParkMap, MapLoadError> {
     let template = MapTemplate::load(MapSource::Embedded(include_str!(
-        "../assets/maps/map-tpm-41.json"
+        "../assets/maps/map-tpm-44.json"
     )))?;
     template.into_park_map()
 }

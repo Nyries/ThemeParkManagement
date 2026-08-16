@@ -1,4 +1,4 @@
-use rand::seq::IteratorRandom;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -146,18 +146,24 @@ impl ParkMap {
         self.infrastructure.get(&(x, y, z))
     }
 
+    /// Picks a random walkable cell reachable from `exclude`, or `None` if no other
+    /// cell is actually reachable (e.g. `exclude` sits in a disconnected pocket, or is
+    /// the only walkable cell on the map) — TPM-157. A candidate merely existing in
+    /// `self.infrastructure` is not enough: it must have an actual path from `exclude`,
+    /// otherwise a caller assigning it as a target would deterministically end up with
+    /// an empty path forever, indistinguishable from a frozen visitor.
     pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
-        let mut rng = rand::thread_rng();
-        self.infrastructure
+        let mut candidates: Vec<(i32, i32, i32)> = self
+            .infrastructure
             .keys()
             .filter(|&&cell| cell != exclude)
-            .choose(&mut rng)
             .copied()
-            .or(if self.infrastructure.is_empty() {
-                None
-            } else {
-                Some(exclude)
-            })
+            .collect();
+        candidates.shuffle(&mut rand::thread_rng());
+
+        candidates
+            .into_iter()
+            .find(|&candidate| self.find_path(exclude, candidate).is_some())
     }
 
     pub fn set_building(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
@@ -450,9 +456,15 @@ mod tests {
     mod random_walkable_cell {
         use super::*;
 
+        // build_test_map()'s bounds are a single (0,0,0) cell — too narrow to place a
+        // second, actually-reachable candidate. This module needs room for a real path.
+        fn build_reachable_test_map() -> ParkMap {
+            ParkMap::new("map-1".into(), Bounds3d::new(0, 5, 0, 5, 0, 0))
+        }
+
         #[test]
-        fn test_returns_a_different_cell_when_several_are_walkable() {
-            let mut map = build_test_map();
+        fn test_returns_a_different_reachable_cell_when_several_are_walkable() {
+            let mut map = build_reachable_test_map();
             map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
@@ -462,18 +474,36 @@ mod tests {
         }
 
         #[test]
-        fn test_falls_back_to_excluded_cell_when_it_is_the_only_walkable_one() {
-            let mut map = build_test_map();
+        fn test_returns_none_when_it_is_the_only_walkable_cell() {
+            // TPM-157 regression: previously fell back to `exclude` itself, which a
+            // caller assigning as a new target would turn into a permanently empty
+            // path — a visitor frozen forever without ever failing explicitly.
+            let mut map = build_reachable_test_map();
             map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
             let result = map.random_walkable_cell((0, 0, 0));
 
-            assert_eq!(result, Some((0, 0, 0)));
+            assert_eq!(result, None);
         }
 
         #[test]
         fn test_returns_none_when_no_cell_is_walkable() {
             let map = build_test_map();
+
+            let result = map.random_walkable_cell((0, 0, 0));
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_ignores_a_candidate_that_exists_but_is_unreachable() {
+            // TPM-157 regression: `exclude` sits in a disconnected pocket. The other
+            // cell exists in `infrastructure` but has no path from `exclude` — it must
+            // never be picked, unlike the old purely-random selection over all keys.
+            let mut map = build_reachable_test_map();
+            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            // (5,5,0) is never connected to (0,0,0): no infrastructure links them.
+            map.set_infrastructure(5, 5, 0, InfrastructureShape::Path);
 
             let result = map.random_walkable_cell((0, 0, 0));
 

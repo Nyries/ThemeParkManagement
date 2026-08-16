@@ -1,10 +1,29 @@
+use rand::Rng;
+use std::collections::HashMap;
+
 use crate::balance::{
-    AVOIDING_RADIUS, DENSITY_CAP, K_REPULSION, LATERAL_REPULSION_FACTOR, STEERING_FACTOR,
-    VISIT_DURATION_TICKS,
+    AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
+    K_REPULSION, LANE_BIAS_STRENGTH, LATERAL_REPULSION_FACTOR, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY,
+    NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE, NEED_GROWTH_FATIGUE_TIME,
+    NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE, NEED_GROWTH_TOILETS_TIME,
+    NOVELTY_FLOOR, NOVELTY_RECOVERY_TICKS, SATISFACTION_PENALTY_EXPONENT,
+    SATISFACTION_RECENCY_WEIGHT, SPEED_FLOOR_AT_MAX_DENSITY, STEERING_FACTOR, VISIT_DURATION_TICKS,
 };
 
 pub type VisitorId = String;
 
+pub const HUNGER: &str = "hunger";
+pub const THIRST: &str = "thirst";
+pub const FATIGUE: &str = "fatigue";
+pub const TOILETS: &str = "toilets";
+pub const ENTERTAINMENT: &str = "entertainment";
+
+/// The jalon 2a subset of the ~13-need universal core (TPM-44) — the only needs with
+/// a building in the current catalog able to relieve them. See Wiki des Formules
+/// §Besoins et satisfaction des visiteurs.
+pub const CORE_NEEDS: [&str; 5] = [HUNGER, THIRST, FATIGUE, TOILETS, ENTERTAINMENT];
+
+#[derive(Default)]
 pub struct Visitor {
     pub id: VisitorId,
     pub position: (f32, f32, f32),
@@ -13,6 +32,18 @@ pub struct Visitor {
     pub ticks_since_spawn: u64,
     pub heading: (f32, f32, f32),
     pub is_leaving: bool,
+    /// Level per need, 0-100, grows over time/distance and is relieved by buildings.
+    pub needs: HashMap<String, f32>,
+    /// Individual comfort threshold per need, drawn at spawn (see `Visitor::new`).
+    pub comfort_thresholds: HashMap<String, f32>,
+    /// Cumulative satisfaction, exponential moving average of (gain - penalty). 0 = neutral.
+    pub satisfaction: f32,
+    /// Tick at which each cell was last targeted, for the novelty factor in destination
+    /// scoring — short-term memory scoped to the visit, never persisted across visits.
+    pub last_visited: HashMap<(i32, i32, i32), u64>,
+    /// Consecutive ticks with near-zero movement despite a nonzero speed — a head-on
+    /// repulsion standoff with another visitor. See `STALL_TICKS_THRESHOLD`.
+    pub stall_ticks: u64,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -22,7 +53,7 @@ fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
+pub(crate) fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
     let d = distance(from, to);
     if d == 0.0 {
         return (0.0, 0.0, 0.0);
@@ -49,6 +80,7 @@ fn dot(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
 fn atternuate_lateral_repulsion(
     repulsion: (f32, f32, f32),
     forward: (f32, f32, f32),
+    lateral_factor: f32,
 ) -> (f32, f32, f32) {
     if forward == (0.0, 0.0, 0.0) {
         return repulsion;
@@ -61,10 +93,60 @@ fn atternuate_lateral_repulsion(
         repulsion.2 - parallel.2,
     );
     (
-        parallel.0 + lateral.0 * LATERAL_REPULSION_FACTOR,
-        parallel.1 + lateral.1 * LATERAL_REPULSION_FACTOR,
-        parallel.2 + lateral.2 * LATERAL_REPULSION_FACTOR,
+        parallel.0 + lateral.0 * lateral_factor,
+        parallel.1 + lateral.1 * lateral_factor,
+        parallel.2 + lateral.2 * lateral_factor,
     )
+}
+
+/// How much of the lateral (sideways) component of repulsion actually steers a
+/// visitor, scaled by local crowding. At low density it stays mostly suppressed
+/// (`LATERAL_REPULSION_FACTOR`) so a visitor's path stays straight on an ordinary,
+/// uncrowded corridor; as density approaches/exceeds `DENSITY_CAP` it ramps up toward
+/// `LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY`, so a visitor in a crowd actually steps
+/// aside to go around others instead of only slowing down (which on its own still
+/// clears a jam, via `SPEED_FLOOR_AT_MAX_DENSITY`, but much more slowly).
+pub fn lateral_repulsion_factor_for(density: usize) -> f32 {
+    let t = (density as f32 / DENSITY_CAP as f32).min(1.0);
+    LATERAL_REPULSION_FACTOR + (LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY - LATERAL_REPULSION_FACTOR) * t
+}
+
+/// The perpendicular (in the horizontal plane) to a direction of travel — the axis a
+/// visitor can step sideways along to use more of a wide path's width. `None` for a
+/// visitor with no direction yet (path just assigned, hasn't moved).
+pub fn perpendicular_of(forward: (f32, f32, f32)) -> Option<(f32, f32, f32)> {
+    if forward == (0.0, 0.0, 0.0) {
+        return None;
+    }
+    Some((-forward.1, forward.0, 0.0))
+}
+
+/// Signed bias strength (positive = toward the `left_density` side, i.e. along
+/// `perpendicular_of(forward)`; negative = toward the `right_density` side) steering a
+/// visitor toward whichever neighbouring lane is less crowded, at up to `max_strength`.
+/// `None` density means that side isn't walkable at all — never biased toward. Both
+/// sides blocked (a genuinely 1-wide corridor) yields zero: nothing to steer into.
+/// Shared by `lane_bias_strength` (immediate neighbour, TPM-44) and `compute_detour_bias`
+/// (look-ahead along the path, TPM-182 option A) — same shape, different strength/range.
+pub(crate) fn weighted_lane_bias(
+    left_density: Option<usize>,
+    right_density: Option<usize>,
+    max_strength: f32,
+) -> f32 {
+    let (Some(left), Some(right)) = (left_density, right_density) else {
+        // At most one side is walkable; steer toward it if it exists, otherwise no bias.
+        return match (left_density, right_density) {
+            (Some(_), None) => max_strength,
+            (None, Some(_)) => -max_strength,
+            _ => 0.0,
+        };
+    };
+    let diff = (right as f32 - left as f32) / DENSITY_CAP as f32;
+    max_strength * diff.clamp(-1.0, 1.0)
+}
+
+pub fn lane_bias_strength(left_density: Option<usize>, right_density: Option<usize>) -> f32 {
+    weighted_lane_bias(left_density, right_density, LANE_BIAS_STRENGTH)
 }
 
 fn lerp_direction(
@@ -80,8 +162,12 @@ fn lerp_direction(
     normalize(blended)
 }
 
+/// Speed drops linearly with local density, but never all the way to zero — a floor
+/// of `SPEED_FLOOR_AT_MAX_DENSITY` guarantees some crawl even at/above `DENSITY_CAP`.
+/// Without it, a visitor at speed 0 never leaves its cell, so density there can only
+/// ever grow and never recovers: a permanent gridlock (confirmed empirically).
 pub fn speed_at(base_speed: f32, density: usize) -> f32 {
-    let f = (1.0 - density as f32 / DENSITY_CAP as f32).max(0.0);
+    let f = (1.0 - density as f32 / DENSITY_CAP as f32).max(SPEED_FLOOR_AT_MAX_DENSITY);
     base_speed * f
 }
 
@@ -93,17 +179,145 @@ pub fn repulsion_force(
     if d >= AVOIDING_RADIUS {
         return (0.0, 0.0, 0.0);
     }
-    let (dx, dy, dz) = direction(neighbor_position, my_position);
     let intensity = K_REPULSION * (AVOIDING_RADIUS - d) / AVOIDING_RADIUS;
+
+    if d == 0.0 {
+        // Exact overlap: `direction()` has no defined direction to push apart (it
+        // returns (0,0,0) itself when both points coincide). Without this, two
+        // visitors that land on the exact same continuous position experience zero
+        // mutual repulsion forever — a stable, permanently merged fixed point, since
+        // nothing ever perturbs them apart again. Push in a random direction instead.
+        let angle: f32 = rand::thread_rng().gen_range(0.0..std::f32::consts::TAU);
+        return (intensity * angle.cos(), intensity * angle.sin(), 0.0);
+    }
+
+    let (dx, dy, dz) = direction(neighbor_position, my_position);
     (intensity * dx, intensity * dy, intensity * dz)
 }
 
+/// Growth per tick for each core need, driven by time and/or distance moved this tick.
+/// See Wiki des Formules §Besoins et satisfaction des visiteurs.
+pub fn grow_needs(needs: &mut HashMap<String, f32>, distance_moved: f32) {
+    *needs.entry(HUNGER.to_string()).or_insert(0.0) += NEED_GROWTH_HUNGER;
+    *needs.entry(THIRST.to_string()).or_insert(0.0) += NEED_GROWTH_THIRST;
+    *needs.entry(TOILETS.to_string()).or_insert(0.0) +=
+        NEED_GROWTH_TOILETS_TIME + NEED_GROWTH_TOILETS_DISTANCE * distance_moved;
+    *needs.entry(FATIGUE.to_string()).or_insert(0.0) +=
+        NEED_GROWTH_FATIGUE_TIME + NEED_GROWTH_FATIGUE_DISTANCE * distance_moved;
+    *needs.entry(ENTERTAINMENT.to_string()).or_insert(0.0) += NEED_GROWTH_ENTERTAINMENT;
+}
+
+/// Relieves a single need by `amount`, floored at 0. No-op if the need is untracked.
+pub fn relieve_need(needs: &mut HashMap<String, f32>, need: &str, amount: f32) {
+    if let Some(level) = needs.get_mut(need) {
+        *level = (*level - amount).max(0.0);
+    }
+}
+
+/// Convex penalty: needs grow toward 100 the more urgent they are (see `grow_needs`), so
+/// the penalty is 0 while a need stays under its comfort threshold, growing sharply once
+/// it exceeds it. `penalty(need) = weight * ((level - threshold) / threshold)^p`, weight
+/// = 1.0 uniformly across needs for now (per-need weighting deferred to a later
+/// calibration).
+pub fn penalty_for(level: f32, threshold: f32) -> f32 {
+    if threshold <= 0.0 || level <= threshold {
+        return 0.0;
+    }
+    ((level - threshold) / threshold).powf(SATISFACTION_PENALTY_EXPONENT)
+}
+
+/// Gain granted when a need is relieved, proportional to the relief's intensity and to
+/// how urgent the need was right before being relieved (0 if it was still far under its
+/// comfort threshold, maxing out once the need had reached or passed it).
+pub fn gain_for(relief_intensity: f32, level_before_relief: f32, threshold: f32) -> f32 {
+    let urgency = if threshold <= 0.0 {
+        0.0
+    } else {
+        (level_before_relief / threshold).clamp(0.0, 1.0)
+    };
+    relief_intensity * urgency
+}
+
+/// Rolls a single tick's (gain - penalty) into the cumulative satisfaction, as an
+/// exponential moving average — `SATISFACTION_RECENCY_WEIGHT` controls how much weight
+/// recent ticks carry over the visit's history.
+pub fn update_satisfaction(current: f32, gain: f32, penalty: f32) -> f32 {
+    current * (1.0 - SATISFACTION_RECENCY_WEIGHT) + (gain - penalty) * SATISFACTION_RECENCY_WEIGHT
+}
+
+/// Destination score's `utilité` term: dot product between the visitor's need levels
+/// and a building's `needs_relief` vector — how useful this building would be right
+/// now. See Wiki des Formules §Choix de destination.
+pub fn utility_for(needs: &HashMap<String, f32>, needs_relief: &HashMap<String, u32>) -> f32 {
+    needs_relief
+        .iter()
+        .map(|(need, &relief)| needs.get(need).copied().unwrap_or(0.0) * relief as f32)
+        .sum()
+}
+
+/// Destination score's `nouveauté` term: 1.0 if this cell was never targeted before
+/// (or the memory of it has fully recovered), otherwise falls to `NOVELTY_FLOOR` right
+/// after a visit and climbs linearly back to 1.0 over `NOVELTY_RECOVERY_TICKS`.
+pub fn novelty_for(last_visited_tick: Option<u64>, current_tick: u64) -> f32 {
+    let Some(last_tick) = last_visited_tick else {
+        return 1.0;
+    };
+    let elapsed = current_tick.saturating_sub(last_tick) as f32;
+    (NOVELTY_FLOOR + (1.0 - NOVELTY_FLOOR) * (elapsed / NOVELTY_RECOVERY_TICKS)).min(1.0)
+}
+
+/// Combines the destination score's four terms: `score = utilité × affinité ×
+/// nouveauté / coût`. Returns 0 for a non-positive cost (unreachable/degenerate)
+/// instead of dividing by it, so callers can compare scores without special-casing.
+pub fn score_for(utility: f32, affinity: f32, novelty: f32, cost: f32) -> f32 {
+    if cost <= 0.0 {
+        return 0.0;
+    }
+    (utility * affinity * novelty) / cost
+}
+
 impl Visitor {
+    /// Builds a freshly spawned visitor at `position`, with all core needs at 0 and
+    /// individually-drawn comfort thresholds. Callers still need to set `path`/`target`
+    /// themselves (this constructor has no map access to compute them).
+    pub fn new(id: VisitorId, position: (f32, f32, f32)) -> Self {
+        let mut rng = rand::thread_rng();
+        let comfort_thresholds = CORE_NEEDS
+            .iter()
+            .map(|&need| {
+                let jitter = rng.gen_range(-COMFORT_THRESHOLD_VARIANCE..=COMFORT_THRESHOLD_VARIANCE);
+                (need.to_string(), COMFORT_THRESHOLD_DEFAULT + jitter)
+            })
+            .collect();
+        let needs = CORE_NEEDS.iter().map(|&need| (need.to_string(), 0.0)).collect();
+
+        Self {
+            id,
+            position,
+            needs,
+            comfort_thresholds,
+            ..Default::default()
+        }
+    }
+
     pub fn has_expired(&self) -> bool {
         self.ticks_since_spawn >= VISIT_DURATION_TICKS
     }
 
-    pub fn advance(&mut self, speed: f32, dt: f32, repulsion: (f32, f32, f32)) {
+    /// True once cumulative satisfaction has collapsed net (see
+    /// `EARLY_DEPARTURE_SATISFACTION_THRESHOLD`) — stricter than the ordinary per-need
+    /// penalty so a visitor doesn't bail at the first uncomfortable need.
+    pub fn should_leave_early(&self) -> bool {
+        self.satisfaction < crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD
+    }
+
+    pub fn advance(
+        &mut self,
+        speed: f32,
+        dt: f32,
+        repulsion: (f32, f32, f32),
+        lateral_factor: f32,
+    ) {
         let Some(&next) = self.path.first() else {
             return;
         };
@@ -111,7 +325,8 @@ impl Visitor {
         let dist_to_next = distance(self.position, next_f);
 
         let raw_desired = direction(self.position, next_f);
-        let attenuated_repulsion = atternuate_lateral_repulsion(repulsion, raw_desired);
+        let attenuated_repulsion =
+            atternuate_lateral_repulsion(repulsion, raw_desired, lateral_factor);
         let combined = (
             raw_desired.0 + attenuated_repulsion.0,
             raw_desired.1 + attenuated_repulsion.1,
@@ -178,11 +393,359 @@ mod tests {
     fn test_speed_at() {
         let base_speed = 1.0;
         let density = 2.0;
-        let expected = 0.6; // (1.0 - 2.0/5.0).max(0.0) * 1.0 = 0.6 * 1.0
+        let expected = 0.6; // (1.0 - 2.0/5.0).max(FLOOR) * 1.0 = 0.6 * 1.0
 
         let result = speed_at(base_speed, density as usize);
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_speed_at_never_reaches_zero_at_or_above_the_density_cap() {
+        // Regression: without a floor, density >= DENSITY_CAP made speed exactly 0
+        // forever — a visitor that never moves never leaves its cell, so density
+        // there can only grow, never recover. Confirmed empirically to gridlock.
+        let at_cap = speed_at(1.0, DENSITY_CAP);
+        let above_cap = speed_at(1.0, DENSITY_CAP * 10);
+
+        assert_eq!(at_cap, SPEED_FLOOR_AT_MAX_DENSITY);
+        assert_eq!(above_cap, SPEED_FLOOR_AT_MAX_DENSITY);
+        assert!(at_cap > 0.0);
+    }
+
+    mod lateral_repulsion_factor_for {
+        use super::*;
+
+        #[test]
+        fn test_stays_at_the_baseline_factor_with_no_crowd() {
+            let result = lateral_repulsion_factor_for(0);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR);
+        }
+
+        #[test]
+        fn test_reaches_the_max_density_factor_at_the_cap() {
+            let result = lateral_repulsion_factor_for(DENSITY_CAP);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+
+        #[test]
+        fn test_never_exceeds_the_max_density_factor_beyond_the_cap() {
+            let result = lateral_repulsion_factor_for(DENSITY_CAP * 10);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+
+        #[test]
+        fn test_grows_monotonically_between_the_baseline_and_the_cap() {
+            let low = lateral_repulsion_factor_for(1);
+            let mid = lateral_repulsion_factor_for(DENSITY_CAP / 2);
+            let high = lateral_repulsion_factor_for(DENSITY_CAP - 1);
+
+            assert!(LATERAL_REPULSION_FACTOR < low);
+            assert!(low < mid);
+            assert!(mid < high);
+            assert!(high < LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+    }
+
+    mod perpendicular_of {
+        use super::*;
+
+        #[test]
+        fn test_none_when_forward_has_no_direction() {
+            let result = perpendicular_of((0.0, 0.0, 0.0));
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_rotates_ninety_degrees_in_the_horizontal_plane() {
+            let result = perpendicular_of((1.0, 0.0, 0.0));
+
+            assert_eq!(result, Some((0.0, 1.0, 0.0)));
+        }
+
+        #[test]
+        fn test_stays_perpendicular_to_forward() {
+            let forward = (1.0, 0.0, 0.0);
+            let perp = perpendicular_of(forward).unwrap();
+
+            assert_eq!(dot(forward, perp), 0.0);
+        }
+    }
+
+    mod lane_bias_strength {
+        use super::*;
+
+        #[test]
+        fn test_zero_when_both_sides_equally_crowded() {
+            let result = lane_bias_strength(Some(2), Some(2));
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_positive_toward_the_less_crowded_left_side() {
+            let result = lane_bias_strength(Some(0), Some(DENSITY_CAP));
+
+            assert!(result > 0.0);
+        }
+
+        #[test]
+        fn test_negative_toward_the_less_crowded_right_side() {
+            let result = lane_bias_strength(Some(DENSITY_CAP), Some(0));
+
+            assert!(result < 0.0);
+        }
+
+        #[test]
+        fn test_steers_toward_the_only_walkable_side() {
+            let toward_left = lane_bias_strength(Some(0), None);
+            let toward_right = lane_bias_strength(None, Some(0));
+
+            assert_eq!(toward_left, LANE_BIAS_STRENGTH);
+            assert_eq!(toward_right, -LANE_BIAS_STRENGTH);
+        }
+
+        #[test]
+        fn test_zero_when_neither_side_is_walkable() {
+            let result = lane_bias_strength(None, None);
+
+            assert_eq!(result, 0.0);
+        }
+    }
+
+    mod needs_and_satisfaction {
+        use super::*;
+
+        #[test]
+        fn test_new_sets_all_core_needs_to_zero() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            for need in CORE_NEEDS {
+                assert_eq!(visitor.needs.get(need), Some(&0.0));
+            }
+        }
+
+        #[test]
+        fn test_new_draws_comfort_thresholds_within_the_expected_range() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            for need in CORE_NEEDS {
+                let threshold = *visitor.comfort_thresholds.get(need).unwrap();
+                assert!(
+                    (COMFORT_THRESHOLD_DEFAULT - COMFORT_THRESHOLD_VARIANCE..=COMFORT_THRESHOLD_DEFAULT + COMFORT_THRESHOLD_VARIANCE)
+                        .contains(&threshold),
+                    "{need} threshold {threshold} out of range"
+                );
+            }
+        }
+
+        #[test]
+        fn test_new_starts_with_neutral_satisfaction_and_not_leaving() {
+            let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+
+            assert_eq!(visitor.satisfaction, 0.0);
+            assert!(!visitor.is_leaving);
+        }
+
+        #[test]
+        fn test_grow_needs_increases_every_core_need() {
+            let mut needs = HashMap::new();
+
+            grow_needs(&mut needs, 0.0);
+
+            for need in CORE_NEEDS {
+                assert!(needs[need] > 0.0, "{need} should have grown");
+            }
+        }
+
+        #[test]
+        fn test_grow_needs_distance_only_affects_toilets_and_fatigue() {
+            let mut still = HashMap::new();
+            grow_needs(&mut still, 0.0);
+
+            let mut moved = HashMap::new();
+            grow_needs(&mut moved, 10.0);
+
+            assert_eq!(still[HUNGER], moved[HUNGER]);
+            assert_eq!(still[THIRST], moved[THIRST]);
+            assert_eq!(still[ENTERTAINMENT], moved[ENTERTAINMENT]);
+            assert!(moved[TOILETS] > still[TOILETS]);
+            assert!(moved[FATIGUE] > still[FATIGUE]);
+        }
+
+        #[test]
+        fn test_relieve_need_lowers_level_floored_at_zero() {
+            let mut needs = HashMap::from([(HUNGER.to_string(), 20.0)]);
+
+            relieve_need(&mut needs, HUNGER, 35.0);
+
+            assert_eq!(needs[HUNGER], 0.0);
+        }
+
+        #[test]
+        fn test_relieve_need_is_a_noop_for_an_untracked_need() {
+            let mut needs = HashMap::new();
+
+            relieve_need(&mut needs, HUNGER, 20.0);
+
+            assert!(needs.is_empty());
+        }
+
+        #[test]
+        fn test_penalty_for_is_zero_at_or_below_threshold() {
+            assert_eq!(penalty_for(70.0, 70.0), 0.0);
+            assert_eq!(penalty_for(50.0, 70.0), 0.0);
+        }
+
+        #[test]
+        fn test_penalty_for_grows_convexly_past_threshold() {
+            let small_overshoot = penalty_for(80.0, 70.0); // (10/70)^2
+            let large_overshoot = penalty_for(100.0, 70.0); // (30/70)^2
+
+            assert!(small_overshoot > 0.0);
+            assert!(large_overshoot > small_overshoot);
+            let expected_small = (10.0_f32 / 70.0).powf(SATISFACTION_PENALTY_EXPONENT);
+            assert!((small_overshoot - expected_small).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_gain_for_is_zero_when_need_was_far_from_urgent() {
+            let gain = gain_for(20.0, 0.0, 70.0); // level_before = 0, no urgency at all
+
+            assert_eq!(gain, 0.0);
+        }
+
+        #[test]
+        fn test_gain_for_scales_with_intensity_and_urgency() {
+            let low_urgency = gain_for(20.0, 20.0, 70.0); // urgency = 20/70
+            let high_urgency = gain_for(20.0, 60.0, 70.0); // urgency = 60/70
+
+            assert!(high_urgency > low_urgency);
+            assert!(low_urgency > 0.0);
+        }
+
+        #[test]
+        fn test_gain_for_urgency_caps_at_one_past_the_threshold() {
+            let at_threshold = gain_for(20.0, 70.0, 70.0);
+            let past_threshold = gain_for(20.0, 100.0, 70.0);
+
+            assert_eq!(at_threshold, 20.0);
+            assert_eq!(past_threshold, 20.0);
+        }
+
+        #[test]
+        fn test_update_satisfaction_moves_toward_the_new_signal() {
+            let after_gain = update_satisfaction(0.0, 10.0, 0.0);
+            let after_penalty = update_satisfaction(0.0, 0.0, 10.0);
+
+            assert!(after_gain > 0.0);
+            assert!(after_penalty < 0.0);
+        }
+
+        #[test]
+        fn test_update_satisfaction_weighs_recent_signal_by_recency_weight() {
+            let expected = 0.0 * (1.0 - SATISFACTION_RECENCY_WEIGHT) + 5.0 * SATISFACTION_RECENCY_WEIGHT;
+
+            let result = update_satisfaction(0.0, 5.0, 0.0);
+
+            assert!((result - expected).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_should_leave_early_is_false_above_the_threshold() {
+            let mut visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+            visitor.satisfaction = -10.0;
+
+            assert!(!visitor.should_leave_early());
+        }
+
+        #[test]
+        fn test_should_leave_early_is_true_below_the_threshold() {
+            let mut visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
+            visitor.satisfaction = -60.0;
+
+            assert!(visitor.should_leave_early());
+        }
+    }
+
+    mod destination_score {
+        use super::*;
+
+        #[test]
+        fn test_utility_for_is_the_dot_product_of_needs_and_relief() {
+            let needs = HashMap::from([(HUNGER.to_string(), 80.0), (THIRST.to_string(), 20.0)]);
+            let relief = HashMap::from([(HUNGER.to_string(), 30), (THIRST.to_string(), 10)]);
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 80.0 * 30.0 + 20.0 * 10.0);
+        }
+
+        #[test]
+        fn test_utility_for_ignores_relief_for_untracked_needs() {
+            let needs = HashMap::new();
+            let relief = HashMap::from([(HUNGER.to_string(), 30)]);
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_utility_for_is_zero_with_no_relief() {
+            let needs = HashMap::from([(HUNGER.to_string(), 80.0)]);
+            let relief = HashMap::new();
+
+            let result = utility_for(&needs, &relief);
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_novelty_for_is_full_when_never_visited() {
+            let result = novelty_for(None, 1000);
+
+            assert_eq!(result, 1.0);
+        }
+
+        #[test]
+        fn test_novelty_for_is_at_the_floor_right_after_a_visit() {
+            let result = novelty_for(Some(1000), 1000);
+
+            assert_eq!(result, NOVELTY_FLOOR);
+        }
+
+        #[test]
+        fn test_novelty_for_recovers_linearly_toward_one() {
+            let halfway = novelty_for(Some(0), 100); // half of NOVELTY_RECOVERY_TICKS (200)
+
+            let expected = NOVELTY_FLOOR + (1.0 - NOVELTY_FLOOR) * 0.5;
+            assert!((halfway - expected).abs() < 1e-5);
+        }
+
+        #[test]
+        fn test_novelty_for_caps_at_one_past_the_recovery_window() {
+            let result = novelty_for(Some(0), 10_000);
+
+            assert_eq!(result, 1.0);
+        }
+
+        #[test]
+        fn test_score_for_combines_the_four_terms() {
+            let result = score_for(10.0, 2.0, 0.5, 5.0);
+
+            assert_eq!(result, (10.0 * 2.0 * 0.5) / 5.0);
+        }
+
+        #[test]
+        fn test_score_for_is_zero_for_a_non_positive_cost() {
+            assert_eq!(score_for(10.0, 1.0, 1.0, 0.0), 0.0);
+            assert_eq!(score_for(10.0, 1.0, 1.0, -1.0), 0.0);
+        }
     }
 
     fn assert_close(actual: (f32, f32, f32), expected: (f32, f32, f32)) {
@@ -226,9 +789,20 @@ mod tests {
     }
 
     #[test]
-    fn test_repulsion_force_is_zero_when_visitors_overlap_exactly() {
-        let force = repulsion_force((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
-        assert_close(force, (0.0, 0.0, 0.0));
+    fn test_repulsion_force_pushes_apart_at_full_intensity_when_visitors_overlap_exactly() {
+        // Regression: `direction()` is undefined at zero distance, so this used to
+        // return (0,0,0) — a permanently stable merged state, two visitor sprites
+        // stuck on top of each other forever since nothing would ever separate them.
+        // The exact direction is randomized; only the magnitude is deterministic.
+        for _ in 0..50 {
+            let force = repulsion_force((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
+            let magnitude = (force.0 * force.0 + force.1 * force.1 + force.2 * force.2).sqrt();
+            assert!(
+                (magnitude - K_REPULSION).abs() < 1e-5,
+                "expected max intensity ({K_REPULSION}), got {magnitude}"
+            );
+            assert_eq!(force.2, 0.0, "overlap push-apart stays on the horizontal plane");
+        }
     }
 
     mod has_expired {
@@ -244,6 +818,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS - 1,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(!visitor.has_expired());
@@ -259,6 +834,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(visitor.has_expired());
@@ -274,6 +850,7 @@ mod tests {
                 ticks_since_spawn: VISIT_DURATION_TICKS + 500,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             assert!(visitor.has_expired());
@@ -293,9 +870,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             assert_close(visitor.position, (1.0, 2.0, 3.0));
             assert!(visitor.path.is_empty());
@@ -311,9 +889,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
+            visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 0.3, distance = 1.0
 
             assert_close(visitor.position, (0.3, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(1, 0, 0)]);
@@ -329,9 +908,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 1.0 == distance
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
@@ -347,9 +927,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
+            visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 2.0, distance = 1.0
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
@@ -365,9 +946,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(2, 0, 0)]);
@@ -383,9 +965,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
             assert_close(visitor.heading, (1.0, 0.0, 0.0));
         }
 
@@ -399,9 +982,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let expected = {
                 let blended = (1.0 - STEERING_FACTOR, STEERING_FACTOR, 0.0);
@@ -424,9 +1008,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (1.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let len =
                 (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2))
@@ -446,9 +1031,10 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
-            visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
+            visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0), LATERAL_REPULSION_FACTOR); // répulsion latérale forte
 
             assert!(visitor.position.1 > 0.0, "repulsion should push lateraly");
             assert!(
@@ -467,11 +1053,12 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             let speed = 1.0;
             let dt = 0.5;
-            visitor.advance(speed, dt, (5.0, 5.0, 0.0));
+            visitor.advance(speed, dt, (5.0, 5.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let moved = distance((0.0, 0.0, 0.0), visitor.position);
             assert!((moved - speed * dt).abs() < 1e-5);
@@ -492,12 +1079,13 @@ mod tests {
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
+                ..Default::default()
             };
 
             // Several neighbors packed close together can sum to a repulsion far larger than
             // any single crowd member's contribution — nothing currently caps the total.
             let strong_lateral_repulsion = (0.0, 10.0, 0.0);
-            visitor.advance(1.0, 0.6, strong_lateral_repulsion);
+            visitor.advance(1.0, 0.6, strong_lateral_repulsion, LATERAL_REPULSION_FACTOR);
 
             assert!(
                 visitor.position.1.abs() < 0.5,
