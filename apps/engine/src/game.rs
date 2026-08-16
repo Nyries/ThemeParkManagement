@@ -10,7 +10,7 @@ use crate::{
         UNSTALL_IMPULSE_MAGNITUDE,
     },
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
-    map::{BuildingId, Bounds3d, ParkMap, base_speed_for},
+    map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
     visitor::{
         ENTERTAINMENT, Visitor, VisitorId, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
@@ -200,25 +200,13 @@ fn distance_moved(before: (f32, f32, f32), after: (f32, f32, f32)) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-/// Undoes a tick's movement if it left the visitor's rounded cell off any walkable
-/// infrastructure — lateral repulsion (TPM-32) can push a visitor's continuous position
-/// just past the edge of a path with no clamp on the result. Without this, `old_cell`
-/// (the visitor's last known walkable cell, guaranteed walkable by induction — this
-/// same check ran on every previous tick) reads `base_speed = 0` from `compute_speed`
-/// forever: the visitor would freeze in place with no way back onto the path.
 fn is_walkable_at(park_map: &ParkMap, position: (f32, f32, f32)) -> bool {
     let cell = cell_of(position);
     park_map.is_walkable(cell.0, cell.1, cell.2)
 }
 
-/// Undoes a tick's movement if it left the visitor's rounded cell off any walkable
-/// infrastructure — lateral repulsion (TPM-32) can push a visitor's continuous
-/// position just past the edge of a path with no clamp on the result. Rather than a
-/// flat revert (which would freeze a visitor dead against a wall for as long as a
-/// crowd keeps pushing them into it), this first tries sliding along a single axis —
-/// keeping whichever of the tick's x/y progress alone still lands on walkable ground —
-/// so a visitor pinned sideways can still creep forward, the way tile collision
-/// resolution usually works. Only reverts fully to `before` if neither axis works.
+/// Slides along a single axis if the full move left walkable ground, only fully
+/// reverting to `before` if neither axis alone works either.
 fn clamp_to_walkable_ground(v: &mut Visitor, park_map: &ParkMap, before: (f32, f32, f32)) {
     let after = v.position;
     if is_walkable_at(park_map, after) {
@@ -287,9 +275,7 @@ fn redirect_if_expired(
     }
 }
 
-/// Redirects a visitor toward the exit once their cumulative satisfaction has
-/// collapsed net (TPM-44) — stricter departure trigger than plain visit expiry
-/// (`redirect_if_expired`), same redirection mechanics.
+/// Stricter departure trigger than plain visit expiry: cumulative satisfaction collapsed.
 fn redirect_if_leaving_early(
     v: &mut Visitor,
     park_map: &ParkMap,
@@ -304,9 +290,8 @@ fn redirect_if_leaving_early(
     }
 }
 
-/// Grows every core need by the distance moved this tick, then rolls the resulting
-/// per-need penalties into cumulative satisfaction. No gain side yet — that only
-/// happens when a visitor actually relieves a need at a building (TPM-44 step 5).
+/// Grows needs by distance moved, rolls resulting penalties into satisfaction (no gain
+/// side here — that's `relieve_needs_at_arrival`).
 fn update_needs_and_satisfaction(v: &mut Visitor, distance_moved: f32) {
     grow_needs(&mut v.needs, distance_moved);
 
@@ -335,9 +320,8 @@ fn adjacent_building(park_map: &ParkMap, cell: (i32, i32, i32)) -> Option<&Build
         .find_map(|(dx, dy)| park_map.get_building(x + dx, y + dy, z))
 }
 
-/// Applies the needs relief for the building adjacent to a just-reached cell (if any),
-/// rolls the resulting gain into satisfaction, and records the visit for the novelty
-/// factor (TPM-44 §Pathfinding piloté par les besoins). No-op if nothing is adjacent.
+/// Applies needs relief for the building adjacent to a just-reached cell (if any) and
+/// records the visit for the novelty factor. No-op if nothing is adjacent.
 fn relieve_needs_at_arrival(
     v: &mut Visitor,
     park_map: &ParkMap,
@@ -381,12 +365,9 @@ fn relieve_needs_at_arrival(
     v.last_visited.insert(cell, current_tick);
 }
 
-/// Picks the reachable walkable cell with the best destination score (TPM-44 §Choix de
-/// destination) — `utilité` comes from any building adjacent to the candidate,
-/// `affinité` is fixed at `AFFINITY_DEFAULT` pending TPM-48, `coût` is the A* cost
-/// alone (queue wait time isn't modeled yet, TPM-45). Only candidates with a strictly
-/// positive score are considered — a cell with no relevant building never outscores
-/// staying open to ties, so callers fall back to plain wandering instead.
+/// Picks the reachable cell with the best destination score. Only strictly positive
+/// scores count — a cell with no relevant building never outscores wandering.
+// TODO: affinité is fixed neutral until per-profile affinity is wired in.
 fn best_destination(
     v: &Visitor,
     park_map: &ParkMap,
@@ -526,18 +507,15 @@ fn compute_lane_bias(
             .then(|| local_density_at(density, c))
     };
 
-    let strength = lane_bias_strength(density_if_walkable(left_cell), density_if_walkable(right_cell));
+    let strength = lane_bias_strength(
+        density_if_walkable(left_cell),
+        density_if_walkable(right_cell),
+    );
     (perp.0 * strength, perp.1 * strength, 0.0)
 }
 
-/// Anticipatory counterpart to `compute_lane_bias` (TPM-182 option A, lightweight
-/// detour patch): rather than reacting only once a visitor is already beside a
-/// crowded cell, scans up to `DETOUR_LOOKAHEAD_CELLS` cells ahead along the
-/// already-computed `path` for a jam building up further down a wide corridor, and
-/// steers toward whichever side has a walkable, less-congested parallel cell there.
-/// Deliberately does not touch `path` or `find_path` — the visitor's route is
-/// unchanged, so it naturally rejoins the centre lane once past the congested stretch,
-/// the same way `compute_lane_bias` already lets a visitor drift back once alone again.
+/// Anticipatory counterpart to `compute_lane_bias`: scans ahead on `path` for a jam and
+/// steers toward the less-congested parallel cell, without touching `path` itself.
 fn compute_detour_bias(
     v: &Visitor,
     park_map: &ParkMap,
@@ -567,9 +545,11 @@ fn compute_detour_bias(
         let left = (ahead.0 + perp_step.0, ahead.1 + perp_step.1, ahead.2);
         let right = (ahead.0 - perp_step.0, ahead.1 - perp_step.1, ahead.2);
         let weight = 1.0 / (i + 1) as f32; // closer congestion steers harder
-        bias +=
-            weighted_lane_bias(density_if_walkable(left), density_if_walkable(right), DETOUR_BIAS_STRENGTH)
-                * weight;
+        bias += weighted_lane_bias(
+            density_if_walkable(left),
+            density_if_walkable(right),
+            DETOUR_BIAS_STRENGTH,
+        ) * weight;
     }
 
     (perp.0 * bias, perp.1 * bias, 0.0)
@@ -858,11 +838,8 @@ mod tests {
 
         #[test]
         fn test_tick_never_leaves_a_visitor_on_an_unwalkable_cell_even_under_strong_repulsion() {
-            // Regression: lateral repulsion (TPM-32) has no clamp on its own and can
-            // drift a visitor's continuous position past the edge of a single-wide
-            // path. Packing several neighbors right on top of "a" with a large dt
-            // maximizes that drift; the tick loop must still leave "a" on walkable
-            // ground afterward (snap_back_if_off_path).
+            // Packing neighbors on top of "a" with a large dt maximizes repulsion drift;
+            // the tick loop must still leave "a" on walkable ground afterward.
             let mut world = GameWorld::new();
             world
                 .park_map
@@ -1079,7 +1056,9 @@ mod tests {
             world
                 .park_map
                 .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.visitors.push(Visitor::new("a".into(), (0.0, 0.0, 0.0)));
+            world
+                .visitors
+                .push(Visitor::new("a".into(), (0.0, 0.0, 0.0)));
 
             world.tick(0.05);
 
@@ -1704,9 +1683,7 @@ mod tests {
 
         #[test]
         fn test_stays_immobile_with_no_panic_when_no_other_cell_is_reachable() {
-            // TPM-157 regression, end-to-end via this call site: the only walkable
-            // cell is the visitor's own. Must not deterministically re-freeze the
-            // visitor by retargeting itself — it should just stay put.
+            // Only walkable cell is the visitor's own; must not re-freeze by retargeting itself.
             let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
@@ -1735,7 +1712,13 @@ mod tests {
             let mut v = arrived_visitor();
             v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0); // starving
 
-            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_snack_stand(),
+                (0, 0, 0),
+                0,
+            );
 
             assert_eq!(v.target, (3, 0, 0));
         }
@@ -1755,9 +1738,16 @@ mod tests {
             );
             let mut v = arrived_visitor();
             v.needs.insert(crate::visitor::HUNGER.to_string(), 90.0);
-            v.comfort_thresholds.insert(crate::visitor::HUNGER.to_string(), 70.0);
+            v.comfort_thresholds
+                .insert(crate::visitor::HUNGER.to_string(), 70.0);
 
-            assign_new_target_if_arrived(&mut v, &park_map, &catalog_with_snack_stand(), (0, 0, 0), 42);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_snack_stand(),
+                (0, 0, 0),
+                42,
+            );
 
             assert_eq!(v.needs[crate::visitor::HUNGER], 50.0); // 90 - 40 relief
             assert!(v.satisfaction > 0.0, "relief should have granted a gain");
@@ -1921,7 +1911,8 @@ mod tests {
         }
 
         #[test]
-        fn test_steers_toward_the_walkable_side_when_a_cell_ahead_is_congested_and_the_other_side_is_blocked() {
+        fn test_steers_toward_the_walkable_side_when_a_cell_ahead_is_congested_and_the_other_side_is_blocked()
+         {
             // Straight corridor along x. A jam forms two cells ahead at (2,0,0): the
             // parallel cell on the left, (2,1,0), is open ground; the right, (2,-1,0),
             // was never set walkable at all.
@@ -1940,7 +1931,10 @@ mod tests {
 
             let bias = compute_detour_bias(&v, &park_map, &density);
 
-            assert!(bias.1 > 0.0, "should steer toward +y (left/open side), got {bias:?}");
+            assert!(
+                bias.1 > 0.0,
+                "should steer toward +y (left/open side), got {bias:?}"
+            );
         }
 
         #[test]
