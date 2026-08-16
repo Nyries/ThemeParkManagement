@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { AppShell } from "../AppShell";
+
+const NO_TOOL = { mode: null } as const;
 
 describe("AppShell", () => {
   afterEach(() => {
@@ -9,7 +11,7 @@ describe("AppShell", () => {
 
   it("renders the nav, the top bars, the inspector and the children", () => {
     render(
-      <AppShell selection={null}>
+      <AppShell selection={null} tool={NO_TOOL} onToolChange={vi.fn()}>
         <div>Park canvas</div>
       </AppShell>,
     );
@@ -23,7 +25,11 @@ describe("AppShell", () => {
 
   it("forwards the current selection to the inspector panel", () => {
     render(
-      <AppShell selection={{ kind: "employee", label: "Agent d'entretien" }}>
+      <AppShell
+        selection={{ kind: "employee", label: "Agent d'entretien" }}
+        tool={NO_TOOL}
+        onToolChange={vi.fn()}
+      >
         <div>Park canvas</div>
       </AppShell>,
     );

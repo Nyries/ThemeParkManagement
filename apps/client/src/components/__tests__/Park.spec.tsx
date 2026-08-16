@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import type { MapResponse } from "@app/shared-types/grpc";
+import type { ToolState } from "@/park/tool";
 
 const { mockAppInit, mockAppDestroy, mockStageAddChild } = vi.hoisted(() => ({
   mockAppInit: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("../../hooks/useParkSocket", () => ({
     sendCommand: mockSendCommand,
     onWorldState: mockOnWorldState,
     onMap: mockOnMap,
+    isConnected: true,
   }),
 }));
 
@@ -68,6 +70,8 @@ const emptyMap: MapResponse = {
   entrance: undefined,
 };
 
+const NO_TOOL: ToolState = { mode: null };
+
 describe("Park", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,7 +85,7 @@ describe("Park", () => {
   it("fetches the map once on mount", () => {
     mockOnMap.mockReturnValue(new Promise(() => {})); // never resolves: only checking the call happens
 
-    render(<Park />);
+    render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
 
     expect(mockOnMap).toHaveBeenCalledTimes(1);
   });
@@ -89,7 +93,7 @@ describe("Park", () => {
   it("initializes the PixiJS application with dimensions derived from the received map", async () => {
     mockOnMap.mockResolvedValue(emptyMap);
 
-    render(<Park />);
+    render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -104,7 +108,7 @@ describe("Park", () => {
   it("subscribes to world state updates once the map has loaded", async () => {
     mockOnMap.mockResolvedValue(emptyMap);
 
-    render(<Park />);
+    render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -119,7 +123,9 @@ describe("Park", () => {
       errorCode: 0,
     });
 
-    render(<Park />);
+    render(
+      <Park tool={{ mode: "infrastructure" }} onToolChange={vi.fn()} />,
+    );
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -132,13 +138,12 @@ describe("Park", () => {
       expect.objectContaining({ parkId: "default" }),
     );
     expect(cell.clear).toHaveBeenCalled();
-    expect(cell.eventMode).toBe("none");
   });
 
   it("renders a visitor sprite when a world state update is received", async () => {
     mockOnMap.mockResolvedValue(emptyMap);
 
-    render(<Park />);
+    render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
     await flushMicrotasks();
     await flushMicrotasks();
 
