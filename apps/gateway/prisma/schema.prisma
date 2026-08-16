@@ -39,5 +39,5 @@ model Park {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
   gridData Json   
-  balance Float @default(1000.0)
+  balance Float @default(10000.0)
 }
