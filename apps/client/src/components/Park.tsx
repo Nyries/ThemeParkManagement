@@ -162,7 +162,7 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
               occupiedCell.clear();
               occupiedCell
                 .rect(toScreenX(cx), toScreenY(cy, height), CELL_SIZE, CELL_SIZE)
-                .fill(getCellColor(cx, cy, terrain, infrastructure))
+                .fill(getCellColor(cx, cy, terrain, infrastructure, true))
                 .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
               occupiedCell.cursor = "default";
             }
@@ -248,11 +248,12 @@ export function Park({ tool, onToolChange, onSelectionChange }: ParkProps) {
             .fill(color)
             .stroke({ width: 1, color: 0x000000, alpha: 0.15 });
 
-          if (infrastructure[y][x] === null) {
-            cell.eventMode = "static";
-            cell.cursor = "pointer";
-            cell.on("pointertap", () => handleCellClick(x, y));
-          }
+          // Every cell stays interactive regardless of what's already on it —
+          // handleCellClick dispatches by the *current* tool (via toolRef),
+          // so an occupied cell must remain clickable to be removable later.
+          cell.eventMode = "static";
+          cell.cursor = "pointer";
+          cell.on("pointertap", () => handleCellClick(x, y));
 
           cellGraphics[y][x] = cell;
           app.stage.addChild(cell);
