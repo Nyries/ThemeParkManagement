@@ -11,6 +11,7 @@ use crate::{
     },
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
     map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
+    queue::QueueState,
     visitor::{
         ENTERTAINMENT, Visitor, VisitorId, affinity_for, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
@@ -34,6 +35,8 @@ pub struct GameWorld {
     pub dirty_chunks: HashSet<(i32, i32)>,
     pub metrics: ParkMetricsAccumulator,
     pub paused: bool,
+    /// Keyed by attraction `BuildingId.building_id`. See `queue::QueueState`.
+    pub queues: HashMap<String, QueueState>,
 }
 
 impl Default for GameWorld {
@@ -60,6 +63,7 @@ impl GameWorld {
             dirty_chunks: HashSet::new(),
             metrics: ParkMetricsAccumulator::default(),
             paused: false,
+            queues: HashMap::new(),
         }
     }
 
@@ -182,6 +186,16 @@ impl GameWorld {
     pub fn reset_visitors(&mut self) {
         self.visitors.clear();
         self.density.clear();
+    }
+
+    /// Recomputes `attraction_building_id`'s cached chain from the current map
+    /// geometry, preserving its occupants — call whenever queue infrastructure changes.
+    pub fn sync_queue_chain(&mut self, attraction_building_id: &str) {
+        let chain = crate::queue::derive_queue_chain(&self.park_map, attraction_building_id);
+        self.queues
+            .entry(attraction_building_id.to_string())
+            .or_default()
+            .chain = chain;
     }
 }
 
@@ -2313,6 +2327,55 @@ mod tests {
 
             assert_eq!(world.tick_count, 42);
             assert!(world.park_map.get_infrastructure(0, 0, 0).is_some());
+        }
+    }
+
+    mod sync_queue_chain {
+        use super::*;
+
+        #[test]
+        fn test_populates_the_chain_from_the_map_geometry() {
+            let mut world = GameWorld::new();
+            world.park_map.set_building(
+                0,
+                0,
+                0,
+                BuildingId {
+                    building_id: "coaster".into(),
+                    template_id: "roller_coaster".into(),
+                },
+            );
+            world.park_map.set_infrastructure(
+                1,
+                0,
+                0,
+                InfrastructureShape::Queue {
+                    attraction_id: BuildingId {
+                        building_id: "coaster".into(),
+                        template_id: "roller_coaster".into(),
+                    },
+                },
+            );
+
+            world.sync_queue_chain("coaster");
+
+            assert_eq!(world.queues["coaster"].chain, vec![(1, 0, 0)]);
+        }
+
+        #[test]
+        fn test_preserves_occupants_across_a_resync() {
+            let mut world = GameWorld::new();
+            world.queues.insert(
+                "coaster".to_string(),
+                crate::queue::QueueState {
+                    chain: vec![],
+                    occupants: vec!["v1".to_string()].into(),
+                },
+            );
+
+            world.sync_queue_chain("coaster");
+
+            assert_eq!(world.queues["coaster"].occupants, vec!["v1".to_string()]);
         }
     }
 }
