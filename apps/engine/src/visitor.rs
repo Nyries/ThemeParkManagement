@@ -3,10 +3,11 @@ use std::collections::HashMap;
 
 use crate::balance::{
     AVOIDING_RADIUS, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, DENSITY_CAP,
-    K_REPULSION, LATERAL_REPULSION_FACTOR, NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE,
-    NEED_GROWTH_FATIGUE_TIME, NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE,
-    NEED_GROWTH_TOILETS_TIME, NOVELTY_FLOOR, NOVELTY_RECOVERY_TICKS, SATISFACTION_PENALTY_EXPONENT,
-    SATISFACTION_RECENCY_WEIGHT, STEERING_FACTOR, VISIT_DURATION_TICKS,
+    K_REPULSION, LANE_BIAS_STRENGTH, LATERAL_REPULSION_FACTOR, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY,
+    NEED_GROWTH_ENTERTAINMENT, NEED_GROWTH_FATIGUE_DISTANCE, NEED_GROWTH_FATIGUE_TIME,
+    NEED_GROWTH_HUNGER, NEED_GROWTH_THIRST, NEED_GROWTH_TOILETS_DISTANCE, NEED_GROWTH_TOILETS_TIME,
+    NOVELTY_FLOOR, NOVELTY_RECOVERY_TICKS, SATISFACTION_PENALTY_EXPONENT,
+    SATISFACTION_RECENCY_WEIGHT, SPEED_FLOOR_AT_MAX_DENSITY, STEERING_FACTOR, VISIT_DURATION_TICKS,
 };
 
 pub type VisitorId = String;
@@ -40,6 +41,9 @@ pub struct Visitor {
     /// Tick at which each cell was last targeted, for the novelty factor in destination
     /// scoring — short-term memory scoped to the visit, never persisted across visits.
     pub last_visited: HashMap<(i32, i32, i32), u64>,
+    /// Consecutive ticks with near-zero movement despite a nonzero speed — a head-on
+    /// repulsion standoff with another visitor. See `STALL_TICKS_THRESHOLD`.
+    pub stall_ticks: u64,
 }
 
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
@@ -49,7 +53,7 @@ fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
+pub(crate) fn direction(from: (f32, f32, f32), to: (f32, f32, f32)) -> (f32, f32, f32) {
     let d = distance(from, to);
     if d == 0.0 {
         return (0.0, 0.0, 0.0);
@@ -76,6 +80,7 @@ fn dot(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
 fn atternuate_lateral_repulsion(
     repulsion: (f32, f32, f32),
     forward: (f32, f32, f32),
+    lateral_factor: f32,
 ) -> (f32, f32, f32) {
     if forward == (0.0, 0.0, 0.0) {
         return repulsion;
@@ -88,10 +93,60 @@ fn atternuate_lateral_repulsion(
         repulsion.2 - parallel.2,
     );
     (
-        parallel.0 + lateral.0 * LATERAL_REPULSION_FACTOR,
-        parallel.1 + lateral.1 * LATERAL_REPULSION_FACTOR,
-        parallel.2 + lateral.2 * LATERAL_REPULSION_FACTOR,
+        parallel.0 + lateral.0 * lateral_factor,
+        parallel.1 + lateral.1 * lateral_factor,
+        parallel.2 + lateral.2 * lateral_factor,
     )
+}
+
+/// How much of the lateral (sideways) component of repulsion actually steers a
+/// visitor, scaled by local crowding. At low density it stays mostly suppressed
+/// (`LATERAL_REPULSION_FACTOR`) so a visitor's path stays straight on an ordinary,
+/// uncrowded corridor; as density approaches/exceeds `DENSITY_CAP` it ramps up toward
+/// `LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY`, so a visitor in a crowd actually steps
+/// aside to go around others instead of only slowing down (which on its own still
+/// clears a jam, via `SPEED_FLOOR_AT_MAX_DENSITY`, but much more slowly).
+pub fn lateral_repulsion_factor_for(density: usize) -> f32 {
+    let t = (density as f32 / DENSITY_CAP as f32).min(1.0);
+    LATERAL_REPULSION_FACTOR + (LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY - LATERAL_REPULSION_FACTOR) * t
+}
+
+/// The perpendicular (in the horizontal plane) to a direction of travel — the axis a
+/// visitor can step sideways along to use more of a wide path's width. `None` for a
+/// visitor with no direction yet (path just assigned, hasn't moved).
+pub fn perpendicular_of(forward: (f32, f32, f32)) -> Option<(f32, f32, f32)> {
+    if forward == (0.0, 0.0, 0.0) {
+        return None;
+    }
+    Some((-forward.1, forward.0, 0.0))
+}
+
+/// Signed bias strength (positive = toward the `left_density` side, i.e. along
+/// `perpendicular_of(forward)`; negative = toward the `right_density` side) steering a
+/// visitor toward whichever neighbouring lane is less crowded, at up to `max_strength`.
+/// `None` density means that side isn't walkable at all — never biased toward. Both
+/// sides blocked (a genuinely 1-wide corridor) yields zero: nothing to steer into.
+/// Shared by `lane_bias_strength` (immediate neighbour, TPM-44) and `compute_detour_bias`
+/// (look-ahead along the path, TPM-182 option A) — same shape, different strength/range.
+pub(crate) fn weighted_lane_bias(
+    left_density: Option<usize>,
+    right_density: Option<usize>,
+    max_strength: f32,
+) -> f32 {
+    let (Some(left), Some(right)) = (left_density, right_density) else {
+        // At most one side is walkable; steer toward it if it exists, otherwise no bias.
+        return match (left_density, right_density) {
+            (Some(_), None) => max_strength,
+            (None, Some(_)) => -max_strength,
+            _ => 0.0,
+        };
+    };
+    let diff = (right as f32 - left as f32) / DENSITY_CAP as f32;
+    max_strength * diff.clamp(-1.0, 1.0)
+}
+
+pub fn lane_bias_strength(left_density: Option<usize>, right_density: Option<usize>) -> f32 {
+    weighted_lane_bias(left_density, right_density, LANE_BIAS_STRENGTH)
 }
 
 fn lerp_direction(
@@ -107,8 +162,12 @@ fn lerp_direction(
     normalize(blended)
 }
 
+/// Speed drops linearly with local density, but never all the way to zero — a floor
+/// of `SPEED_FLOOR_AT_MAX_DENSITY` guarantees some crawl even at/above `DENSITY_CAP`.
+/// Without it, a visitor at speed 0 never leaves its cell, so density there can only
+/// ever grow and never recovers: a permanent gridlock (confirmed empirically).
 pub fn speed_at(base_speed: f32, density: usize) -> f32 {
-    let f = (1.0 - density as f32 / DENSITY_CAP as f32).max(0.0);
+    let f = (1.0 - density as f32 / DENSITY_CAP as f32).max(SPEED_FLOOR_AT_MAX_DENSITY);
     base_speed * f
 }
 
@@ -120,8 +179,19 @@ pub fn repulsion_force(
     if d >= AVOIDING_RADIUS {
         return (0.0, 0.0, 0.0);
     }
-    let (dx, dy, dz) = direction(neighbor_position, my_position);
     let intensity = K_REPULSION * (AVOIDING_RADIUS - d) / AVOIDING_RADIUS;
+
+    if d == 0.0 {
+        // Exact overlap: `direction()` has no defined direction to push apart (it
+        // returns (0,0,0) itself when both points coincide). Without this, two
+        // visitors that land on the exact same continuous position experience zero
+        // mutual repulsion forever — a stable, permanently merged fixed point, since
+        // nothing ever perturbs them apart again. Push in a random direction instead.
+        let angle: f32 = rand::thread_rng().gen_range(0.0..std::f32::consts::TAU);
+        return (intensity * angle.cos(), intensity * angle.sin(), 0.0);
+    }
+
+    let (dx, dy, dz) = direction(neighbor_position, my_position);
     (intensity * dx, intensity * dy, intensity * dz)
 }
 
@@ -241,7 +311,13 @@ impl Visitor {
         self.satisfaction < crate::balance::EARLY_DEPARTURE_SATISFACTION_THRESHOLD
     }
 
-    pub fn advance(&mut self, speed: f32, dt: f32, repulsion: (f32, f32, f32)) {
+    pub fn advance(
+        &mut self,
+        speed: f32,
+        dt: f32,
+        repulsion: (f32, f32, f32),
+        lateral_factor: f32,
+    ) {
         let Some(&next) = self.path.first() else {
             return;
         };
@@ -249,7 +325,8 @@ impl Visitor {
         let dist_to_next = distance(self.position, next_f);
 
         let raw_desired = direction(self.position, next_f);
-        let attenuated_repulsion = atternuate_lateral_repulsion(repulsion, raw_desired);
+        let attenuated_repulsion =
+            atternuate_lateral_repulsion(repulsion, raw_desired, lateral_factor);
         let combined = (
             raw_desired.0 + attenuated_repulsion.0,
             raw_desired.1 + attenuated_repulsion.1,
@@ -316,11 +393,128 @@ mod tests {
     fn test_speed_at() {
         let base_speed = 1.0;
         let density = 2.0;
-        let expected = 0.6; // (1.0 - 2.0/5.0).max(0.0) * 1.0 = 0.6 * 1.0
+        let expected = 0.6; // (1.0 - 2.0/5.0).max(FLOOR) * 1.0 = 0.6 * 1.0
 
         let result = speed_at(base_speed, density as usize);
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_speed_at_never_reaches_zero_at_or_above_the_density_cap() {
+        // Regression: without a floor, density >= DENSITY_CAP made speed exactly 0
+        // forever — a visitor that never moves never leaves its cell, so density
+        // there can only grow, never recover. Confirmed empirically to gridlock.
+        let at_cap = speed_at(1.0, DENSITY_CAP);
+        let above_cap = speed_at(1.0, DENSITY_CAP * 10);
+
+        assert_eq!(at_cap, SPEED_FLOOR_AT_MAX_DENSITY);
+        assert_eq!(above_cap, SPEED_FLOOR_AT_MAX_DENSITY);
+        assert!(at_cap > 0.0);
+    }
+
+    mod lateral_repulsion_factor_for {
+        use super::*;
+
+        #[test]
+        fn test_stays_at_the_baseline_factor_with_no_crowd() {
+            let result = lateral_repulsion_factor_for(0);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR);
+        }
+
+        #[test]
+        fn test_reaches_the_max_density_factor_at_the_cap() {
+            let result = lateral_repulsion_factor_for(DENSITY_CAP);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+
+        #[test]
+        fn test_never_exceeds_the_max_density_factor_beyond_the_cap() {
+            let result = lateral_repulsion_factor_for(DENSITY_CAP * 10);
+
+            assert_eq!(result, LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+
+        #[test]
+        fn test_grows_monotonically_between_the_baseline_and_the_cap() {
+            let low = lateral_repulsion_factor_for(1);
+            let mid = lateral_repulsion_factor_for(DENSITY_CAP / 2);
+            let high = lateral_repulsion_factor_for(DENSITY_CAP - 1);
+
+            assert!(LATERAL_REPULSION_FACTOR < low);
+            assert!(low < mid);
+            assert!(mid < high);
+            assert!(high < LATERAL_REPULSION_FACTOR_AT_MAX_DENSITY);
+        }
+    }
+
+    mod perpendicular_of {
+        use super::*;
+
+        #[test]
+        fn test_none_when_forward_has_no_direction() {
+            let result = perpendicular_of((0.0, 0.0, 0.0));
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_rotates_ninety_degrees_in_the_horizontal_plane() {
+            let result = perpendicular_of((1.0, 0.0, 0.0));
+
+            assert_eq!(result, Some((0.0, 1.0, 0.0)));
+        }
+
+        #[test]
+        fn test_stays_perpendicular_to_forward() {
+            let forward = (1.0, 0.0, 0.0);
+            let perp = perpendicular_of(forward).unwrap();
+
+            assert_eq!(dot(forward, perp), 0.0);
+        }
+    }
+
+    mod lane_bias_strength {
+        use super::*;
+
+        #[test]
+        fn test_zero_when_both_sides_equally_crowded() {
+            let result = lane_bias_strength(Some(2), Some(2));
+
+            assert_eq!(result, 0.0);
+        }
+
+        #[test]
+        fn test_positive_toward_the_less_crowded_left_side() {
+            let result = lane_bias_strength(Some(0), Some(DENSITY_CAP));
+
+            assert!(result > 0.0);
+        }
+
+        #[test]
+        fn test_negative_toward_the_less_crowded_right_side() {
+            let result = lane_bias_strength(Some(DENSITY_CAP), Some(0));
+
+            assert!(result < 0.0);
+        }
+
+        #[test]
+        fn test_steers_toward_the_only_walkable_side() {
+            let toward_left = lane_bias_strength(Some(0), None);
+            let toward_right = lane_bias_strength(None, Some(0));
+
+            assert_eq!(toward_left, LANE_BIAS_STRENGTH);
+            assert_eq!(toward_right, -LANE_BIAS_STRENGTH);
+        }
+
+        #[test]
+        fn test_zero_when_neither_side_is_walkable() {
+            let result = lane_bias_strength(None, None);
+
+            assert_eq!(result, 0.0);
+        }
     }
 
     mod needs_and_satisfaction {
@@ -595,9 +789,20 @@ mod tests {
     }
 
     #[test]
-    fn test_repulsion_force_is_zero_when_visitors_overlap_exactly() {
-        let force = repulsion_force((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
-        assert_close(force, (0.0, 0.0, 0.0));
+    fn test_repulsion_force_pushes_apart_at_full_intensity_when_visitors_overlap_exactly() {
+        // Regression: `direction()` is undefined at zero distance, so this used to
+        // return (0,0,0) — a permanently stable merged state, two visitor sprites
+        // stuck on top of each other forever since nothing would ever separate them.
+        // The exact direction is randomized; only the magnitude is deterministic.
+        for _ in 0..50 {
+            let force = repulsion_force((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
+            let magnitude = (force.0 * force.0 + force.1 * force.1 + force.2 * force.2).sqrt();
+            assert!(
+                (magnitude - K_REPULSION).abs() < 1e-5,
+                "expected max intensity ({K_REPULSION}), got {magnitude}"
+            );
+            assert_eq!(force.2, 0.0, "overlap push-apart stays on the horizontal plane");
+        }
     }
 
     mod has_expired {
@@ -668,7 +873,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             assert_close(visitor.position, (1.0, 2.0, 3.0));
             assert!(visitor.path.is_empty());
@@ -687,7 +892,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0)); // step = 0.3, distance = 1.0
+            visitor.advance(1.0, 0.3, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 0.3, distance = 1.0
 
             assert_close(visitor.position, (0.3, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(1, 0, 0)]);
@@ -706,7 +911,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0)); // step = 1.0 == distance
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 1.0 == distance
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
@@ -725,7 +930,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0)); // step = 2.0, distance = 1.0
+            visitor.advance(2.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR); // step = 2.0, distance = 1.0
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert!(visitor.path.is_empty());
@@ -744,7 +949,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(1.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             assert_close(visitor.position, (1.0, 0.0, 0.0));
             assert_eq!(visitor.path, vec![(2, 0, 0)]);
@@ -763,7 +968,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
             assert_close(visitor.heading, (1.0, 0.0, 0.0));
         }
 
@@ -780,7 +985,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let expected = {
                 let blended = (1.0 - STEERING_FACTOR, STEERING_FACTOR, 0.0);
@@ -806,7 +1011,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0));
+            visitor.advance(0.0, 1.0, (0.0, 0.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let len =
                 (visitor.heading.0.powi(2) + visitor.heading.1.powi(2) + visitor.heading.2.powi(2))
@@ -829,7 +1034,7 @@ mod tests {
                 ..Default::default()
             };
 
-            visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0)); // répulsion latérale forte
+            visitor.advance(1.0, 0.5, (0.0, 1.0, 0.0), LATERAL_REPULSION_FACTOR); // répulsion latérale forte
 
             assert!(visitor.position.1 > 0.0, "repulsion should push lateraly");
             assert!(
@@ -853,7 +1058,7 @@ mod tests {
 
             let speed = 1.0;
             let dt = 0.5;
-            visitor.advance(speed, dt, (5.0, 5.0, 0.0));
+            visitor.advance(speed, dt, (5.0, 5.0, 0.0), LATERAL_REPULSION_FACTOR);
 
             let moved = distance((0.0, 0.0, 0.0), visitor.position);
             assert!((moved - speed * dt).abs() < 1e-5);
@@ -880,7 +1085,7 @@ mod tests {
             // Several neighbors packed close together can sum to a repulsion far larger than
             // any single crowd member's contribution — nothing currently caps the total.
             let strong_lateral_repulsion = (0.0, 10.0, 0.0);
-            visitor.advance(1.0, 0.6, strong_lateral_repulsion);
+            visitor.advance(1.0, 0.6, strong_lateral_repulsion, LATERAL_REPULSION_FACTOR);
 
             assert!(
                 visitor.position.1.abs() < 0.5,
