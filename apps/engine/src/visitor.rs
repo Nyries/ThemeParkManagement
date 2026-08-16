@@ -29,6 +29,8 @@ pub struct VisitorProfile {
     pub name: &'static str,
     /// Positive = preference, negative = aversion, absent = neutral.
     pub tag_affinities: HashMap<&'static str, f32>,
+    /// Mean comfort threshold per need; absent falls back to `COMFORT_THRESHOLD_DEFAULT`.
+    pub need_thresholds: HashMap<&'static str, f32>,
 }
 
 // TODO: fixed placeholder profiles, calibrated against the catalog's current tags.
@@ -37,14 +39,17 @@ pub fn visitor_profiles() -> Vec<VisitorProfile> {
         VisitorProfile {
             name: "Familles",
             tag_affinities: HashMap::from([("family", 0.8), ("show", 0.3), ("thrill", -0.4)]),
+            need_thresholds: HashMap::from([(FATIGUE, 60.0)]),
         },
         VisitorProfile {
             name: "Ados",
             tag_affinities: HashMap::from([("thrill", 0.9), ("social", 0.6), ("family", -0.2)]),
+            need_thresholds: HashMap::from([(FATIGUE, 85.0), (HUNGER, 60.0), (THIRST, 60.0)]),
         },
         VisitorProfile {
             name: "Seniors",
             tag_affinities: HashMap::from([("show", 0.7), ("family", 0.2), ("thrill", -0.6)]),
+            need_thresholds: HashMap::from([(FATIGUE, 55.0), (TOILETS, 55.0)]),
         },
     ]
 }
@@ -306,9 +311,14 @@ impl Visitor {
         let comfort_thresholds = CORE_NEEDS
             .iter()
             .map(|&need| {
+                let mean = profile
+                    .need_thresholds
+                    .get(need)
+                    .copied()
+                    .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
                 let jitter =
                     rng.gen_range(-COMFORT_THRESHOLD_VARIANCE..=COMFORT_THRESHOLD_VARIANCE);
-                (need.to_string(), COMFORT_THRESHOLD_DEFAULT + jitter)
+                (need.to_string(), mean + jitter)
             })
             .collect();
         let needs = CORE_NEEDS
@@ -554,16 +564,21 @@ mod tests {
         }
 
         #[test]
-        fn test_new_draws_comfort_thresholds_within_the_expected_range() {
+        fn test_new_draws_comfort_thresholds_within_the_expected_range_of_its_profile() {
             let visitor = Visitor::new("v1".into(), (0.0, 0.0, 0.0));
 
             for need in CORE_NEEDS {
+                let mean = visitor
+                    .profile
+                    .need_thresholds
+                    .get(need)
+                    .copied()
+                    .unwrap_or(COMFORT_THRESHOLD_DEFAULT);
                 let threshold = *visitor.comfort_thresholds.get(need).unwrap();
                 assert!(
-                    (COMFORT_THRESHOLD_DEFAULT - COMFORT_THRESHOLD_VARIANCE
-                        ..=COMFORT_THRESHOLD_DEFAULT + COMFORT_THRESHOLD_VARIANCE)
+                    (mean - COMFORT_THRESHOLD_VARIANCE..=mean + COMFORT_THRESHOLD_VARIANCE)
                         .contains(&threshold),
-                    "{need} threshold {threshold} out of range"
+                    "{need} threshold {threshold} out of range around profile mean {mean}"
                 );
             }
         }
@@ -822,7 +837,7 @@ mod tests {
         fn test_affinity_for_is_neutral_for_a_tag_the_profile_has_no_opinion_on() {
             let profile = VisitorProfile {
                 name: "test",
-                tag_affinities: HashMap::new(),
+                ..Default::default()
             };
 
             let result = affinity_for(&profile, &["unknown_tag".to_string()]);
@@ -835,6 +850,7 @@ mod tests {
             let profile = VisitorProfile {
                 name: "test",
                 tag_affinities: HashMap::from([("a", 0.4), ("b", -0.2)]),
+                ..Default::default()
             };
 
             let result = affinity_for(&profile, &["a".to_string(), "b".to_string()]);
