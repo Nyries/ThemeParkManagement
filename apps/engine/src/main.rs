@@ -1,22 +1,37 @@
 use engine::balance::TICK_INTERVAL;
 use engine::game::GameWorld;
+use engine::map::ParkMap;
+use engine::map_template::{MapLoadError, MapSource, MapTemplate};
 use engine::service::SimulationEngineService;
-use engine::map_template::{MapSource, MapTemplate};
 use engine::simulation::simulation_service_server::SimulationServiceServer;
 use engine::simulation::{VisitorState, WorldStateResponse};
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tonic::transport::Server;
 
+const HELP_TEXT: &str =
+    "Dev commands: help | reboot | pause | resume | reset {visitors | map} | funds <amount>";
+
+// Shared by startup and `reset map` so both load the exact same embedded
+// template the same way.
+fn load_default_map() -> Result<ParkMap, MapLoadError> {
+    let template = MapTemplate::load(MapSource::Embedded(include_str!(
+        "../assets/maps/map-tpm-41.json"
+    )))?;
+    template.into_park_map()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting the simulation engine!");
 
-    // Loading park_map
-    let template = MapTemplate::load(MapSource::Embedded(include_str!("../assets/maps/map-tpm-41.json")))?;
-    let park_map = template.into_park_map()?;
+    let park_map = load_default_map()?;
 
     let mut world = GameWorld::new();
     world.park_map = park_map;
@@ -41,18 +56,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 current_tick = w.tick_count;
                 balance = w.balance;
 
-                visitors = w.visitors.iter().map(|v| VisitorState {
-                    id: v.id.clone(),
-                    x: v.position.0,
-                    y: v.position.1,
-                    z: v.position.2,
-                }).collect();
-        
+                visitors = w
+                    .visitors
+                    .iter()
+                    .map(|v| VisitorState {
+                        id: v.id.clone(),
+                        x: v.position.0,
+                        y: v.position.1,
+                        z: v.position.2,
+                    })
+                    .collect();
+
                 if !w.paused && current_tick % 100 == 0 {
                     println!("Tick de simulation en cours... Actuel: {}", current_tick);
                 }
             }
-        
+
             let _ = broadcaster.send(WorldStateResponse {
                 tick_count: current_tick,
                 dirty_chunks_json: "{}".into(),
@@ -62,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let elapsed = start.elapsed();
             if elapsed < tick_interval {
-                sleep(tick_interval-elapsed).await;
+                sleep(tick_interval - elapsed).await;
             }
         }
     });
@@ -71,24 +90,96 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         use tokio::io::{AsyncBufReadExt, BufReader};
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        println!("Dev commands: pause | resume | reset | funds <amount>");
+        println!("{HELP_TEXT}");
         while let Ok(Some(line)) = lines.next_line().await {
-            let mut w = world_clone_stdin.lock().unwrap();
+            // Parsed before locking: "help"/"reboot" don't touch world state
+            // at all, and reboot's `cargo build` can take seconds — holding
+            // the lock for that would freeze the simulation tick loop (which
+            // also locks `world_clone`) for the whole build.
             let mut parts = line.split_whitespace();
             match parts.next() {
-                Some("pause") => { w.paused = true; println!("Simulation paused."); }
-                Some("resume") => { w.paused = false; println!("Simulation resumed."); }
-                Some("reset") => { w.reset_visitors(); println!("Visitors reset."); }
-                Some("funds") => match parts.next() {
-                    None => println!("Current balance: {}", w.balance),
-                    Some(amount_str) => match amount_str.parse::<f64>() {
-                        Ok(amount) => {
-                            w.balance += amount;
-                            println!("Funds added: {amount}. New balance: {}", w.balance);
+                Some("help") => {
+                    println!("{HELP_TEXT}");
+                }
+                Some("reboot") => {
+                    println!("Currently rebooting");
+                    // Run off the async runtime's worker threads: Command::status()
+                    // blocks synchronously for the whole build.
+                    let status =
+                        tokio::task::spawn_blocking(|| Command::new("cargo").arg("build").status())
+                            .await;
+
+                    match status {
+                        Ok(Ok(s)) if s.success() => {
+                            println!("✅ Compilation réussie ! Redémarrage...\n");
+
+                            let bin_path = "./target/debug/engine";
+
+                            #[cfg(unix)]
+                            {
+                                let err = Command::new(bin_path).exec();
+                                // Si exec() revient, c'est qu'il y a eu une erreur
+                                eprintln!("Erreur lors du redémarrage avec exec : {err}");
+                                break;
+                            }
+
+                            #[cfg(not(unix))]
+                            {
+                                // Fallback multiplateforme (lance un nouveau processus et quitte l'actuel)
+                                let _ = Command::new(bin_path).spawn();
+                                std::process::exit(0);
+                            }
                         }
-                        Err(_) => println!("Usage: funds [amount]"),
+                        Ok(Ok(_)) => {
+                            println!("❌ La compilation a échoué. Correction requise.");
+                        }
+                        Ok(Err(e)) => {
+                            println!("❌ Impossible de lancer cargo build : {e}");
+                        }
+                        Err(e) => {
+                            println!("❌ Erreur interne lors du build : {e}");
+                        }
+                    }
+                }
+                Some("pause") => {
+                    let mut w = world_clone_stdin.lock().unwrap();
+                    w.paused = true;
+                    println!("Simulation paused.");
+                }
+                Some("resume") => {
+                    let mut w = world_clone_stdin.lock().unwrap();
+                    w.paused = false;
+                    println!("Simulation resumed.");
+                }
+                Some("reset") => match parts.next() {
+                    Some("visitors") => {
+                        let mut w = world_clone_stdin.lock().unwrap();
+                        w.reset_visitors();
+                        println!("Visitors reset.");
+                    }
+                    Some("map") => match load_default_map() {
+                        Ok(park_map) => {
+                            let mut w = world_clone_stdin.lock().unwrap();
+                            w.park_map = park_map;
+                            println!("Map reset.");
+                        }
+                        Err(e) => println!("❌ Failed to reset map: {e}"),
                     },
+                    _ => println!("Use either visitors or map."),
                 },
+                Some("funds") => {
+                    let mut w = world_clone_stdin.lock().unwrap();
+                    match parts.next() {
+                        None => println!("Current balance: {}", w.balance),
+                        Some(amount_str) => match amount_str.parse::<f64>() {
+                            Ok(amount) => {
+                                w.balance += amount;
+                                println!("Funds added: {amount}. New balance: {}", w.balance);
+                            }
+                            Err(_) => println!("Usage: funds [amount]"),
+                        },
+                    }
+                }
                 Some(other) => println!("Unknown command: {other}"),
                 None => {}
             }
@@ -96,21 +187,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let addr = "0.0.0.0:50051".parse()?;
-    let service = SimulationEngineService {world, state_sender};
+    let service = SimulationEngineService {
+        world,
+        state_sender,
+    };
 
     println!("gRPC server of the engine started on port 50051");
 
     Server::builder()
-    .add_service(SimulationServiceServer::new(service))
-    .serve(addr)
-    .await?;
+        .add_service(SimulationServiceServer::new(service))
+        .serve(addr)
+        .await?;
 
     Ok(())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-
-// }

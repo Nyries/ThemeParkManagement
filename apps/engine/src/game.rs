@@ -1,8 +1,11 @@
-use std::{collections::{HashMap, HashSet}};
+use std::collections::{HashMap, HashSet};
 
-use crate::{balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS}, building_template::{BuildingCatalog, CatalogSource}, map::{Bounds3d, ParkMap, base_speed_for}, visitor::{Visitor, VisitorId, repulsion_force, speed_at}};
-
-
+use crate::{
+    balance::{DENSITY_CAP, SPAWN_INTERVAL_TICKS},
+    building_template::{BuildingCatalog, CatalogSource},
+    map::{Bounds3d, ParkMap, base_speed_for},
+    visitor::{Visitor, VisitorId, repulsion_force, speed_at},
+};
 
 #[derive(Debug, Default)]
 pub struct ParkMetricsAccumulator {
@@ -30,16 +33,17 @@ impl Default for GameWorld {
 
 impl GameWorld {
     pub fn new() -> Self {
-        Self { 
-            park_map:ParkMap::new(
+        Self {
+            park_map: ParkMap::new(
                 "default".into(), //To replace with a parkmap preloaded
-                Bounds3d::new(0, 50, 0, 30, -1, 1)
-            ), 
-            building_catalog: BuildingCatalog::load(
-                CatalogSource::Embedded(include_str!("../assets/catalog/buildings.json"))
-            ).expect("embedded buildings.json should always be valid"),
+                Bounds3d::new(0, 50, 0, 30, -1, 1),
+            ),
+            building_catalog: BuildingCatalog::load(CatalogSource::Embedded(include_str!(
+                "../assets/catalog/buildings.json"
+            )))
+            .expect("embedded buildings.json should always be valid"),
             balance: 1000.0,
-            tick_count: 0, 
+            tick_count: 0,
             visitors: vec![],
             density: HashMap::new(),
             dirty_chunks: HashSet::new(),
@@ -54,9 +58,9 @@ impl GameWorld {
             let should_exist = v.is_leaving && v.path.is_empty();
             if should_exist {
                 let cell = (
-                v.position.0.round() as i32,
-                v.position.1.round() as i32,
-                v.position.2.round() as i32,
+                    v.position.0.round() as i32,
+                    v.position.1.round() as i32,
+                    v.position.2.round() as i32,
                 );
                 if let Some(bucket) = self.density.get_mut(&cell) {
                     bucket.retain(|id| id != &v.id);
@@ -78,11 +82,15 @@ impl GameWorld {
             return;
         }
         self.dirty_chunks.clear();
-        let positions: HashMap<VisitorId, (f32, f32, f32)> = self.visitors.iter().map(|v| (v.id.clone(), v.position)).collect();
+        let positions: HashMap<VisitorId, (f32, f32, f32)> = self
+            .visitors
+            .iter()
+            .map(|v| (v.id.clone(), v.position))
+            .collect();
         let exit = self.park_map.entrance;
 
         for v in self.visitors.iter_mut() {
-            v.ticks_since_spawn += 1; 
+            v.ticks_since_spawn += 1;
             let old_cell = cell_of(v.position);
 
             redirect_if_expired(v, &self.park_map, old_cell, exit);
@@ -91,10 +99,16 @@ impl GameWorld {
 
             let speed = compute_speed(&self.park_map, &self.density, old_cell);
             let repulsion = compute_repulsion(v, &self.density, &positions, old_cell);
-            v.advance(speed, dt, repulsion); 
+            v.advance(speed, dt, repulsion);
 
             let new_cell = cell_of(v.position);
-            update_density_and_dirty_chunks(&mut self.density, &mut self.dirty_chunks, &v.id, old_cell, new_cell);
+            update_density_and_dirty_chunks(
+                &mut self.density,
+                &mut self.dirty_chunks,
+                &v.id,
+                old_cell,
+                new_cell,
+            );
         }
         self.despawn_visitors_who_reached_exit();
 
@@ -111,26 +125,26 @@ impl GameWorld {
             return;
         };
 
-        let target = self.park_map.random_walkable_cell(entrance).unwrap_or(entrance);
+        let target = self
+            .park_map
+            .random_walkable_cell(entrance)
+            .unwrap_or(entrance);
         let path = self.park_map.path_excluding_start(entrance, target);
 
         let id = uuid::Uuid::new_v4().to_string();
 
-        self.visitors.push(Visitor { 
-            id: id.clone(), 
-            position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32), 
+        self.visitors.push(Visitor {
+            id: id.clone(),
+            position: (entrance.0 as f32, entrance.1 as f32, entrance.2 as f32),
             path,
             target,
             ticks_since_spawn: 0,
             heading: (0.0, 0.0, 0.0),
-            is_leaving: false
+            is_leaving: false,
         });
 
-        self.density
-            .entry(entrance)
-            .or_default()
-            .push(id);
-    } 
+        self.density.entry(entrance).or_default().push(id);
+    }
 
     pub fn reset_visitors(&mut self) {
         self.visitors.clear();
@@ -139,10 +153,19 @@ impl GameWorld {
 }
 
 fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
-    (position.0.round() as i32, position.1.round() as i32, position.2.round() as i32)
+    (
+        position.0.round() as i32,
+        position.1.round() as i32,
+        position.2.round() as i32,
+    )
 }
 
-fn redirect_if_expired(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32, i32, i32), exit: Option<(i32, i32, i32)>) {
+fn redirect_if_expired(
+    v: &mut Visitor,
+    park_map: &ParkMap,
+    old_cell: (i32, i32, i32),
+    exit: Option<(i32, i32, i32)>,
+) {
     let Some(exit) = exit else { return };
     if v.has_expired() && !v.is_leaving {
         v.is_leaving = true;
@@ -167,7 +190,11 @@ fn recompute_path_if_blocked(v: &mut Visitor, park_map: &ParkMap, old_cell: (i32
     }
 }
 
-fn compute_speed(park_map: &ParkMap, density: &HashMap<(i32, i32, i32), Vec<VisitorId>>, cell: (i32, i32, i32)) -> f32 {
+fn compute_speed(
+    park_map: &ParkMap,
+    density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
+    cell: (i32, i32, i32),
+) -> f32 {
     let base_speed = park_map
         .get_infrastructure(cell.0, cell.1, cell.2)
         .map(base_speed_for)
@@ -180,7 +207,7 @@ fn compute_repulsion(
     v: &Visitor,
     density: &HashMap<(i32, i32, i32), Vec<VisitorId>>,
     positions: &HashMap<VisitorId, (f32, f32, f32)>,
-    cell: (i32, i32, i32)
+    cell: (i32, i32, i32),
 ) -> (f32, f32, f32) {
     let mut repulsion = (0.0, 0.0, 0.0);
     for dx in -1..=1 {
@@ -192,7 +219,7 @@ fn compute_repulsion(
                         continue;
                     }
                     if let Some(&other_pos) = positions.get(other_id) {
-                        let force =repulsion_force(v.position, other_pos);
+                        let force = repulsion_force(v.position, other_pos);
                         repulsion.0 += force.0;
                         repulsion.1 += force.1;
                         repulsion.2 += force.2;
@@ -209,7 +236,7 @@ fn update_density_and_dirty_chunks(
     dirty_chunks: &mut HashSet<(i32, i32)>,
     visitor_id: &VisitorId,
     old_cell: (i32, i32, i32),
-    new_cell: (i32, i32, i32)
+    new_cell: (i32, i32, i32),
 ) {
     if new_cell == old_cell {
         return;
@@ -220,7 +247,10 @@ fn update_density_and_dirty_chunks(
             density.remove(&old_cell);
         }
     }
-    density.entry(new_cell).or_default().push(visitor_id.clone());
+    density
+        .entry(new_cell)
+        .or_default()
+        .push(visitor_id.clone());
     dirty_chunks.insert((new_cell.0, new_cell.1));
 }
 
@@ -250,81 +280,86 @@ mod tests {
             assert_eq!(world.tick_count, 0);
             assert!(world.park_map.terrain.is_empty());
         }
-    
-    
+
         #[test]
         fn test_game_world_single_tick() {
             let mut world = GameWorld::new();
-            
+
             // On déclenche manuellement un tick sans lancer la boucle infinie
             world.tick(0.05);
             assert_eq!(world.tick_count, 1);
-            
+
             world.tick(0.05);
             assert_eq!(world.tick_count, 2);
         }
-    
+
         #[test]
         fn test_spawn_visitor_does_nothing_without_entrance() {
             let mut world = GameWorld::new();
             // park_map.entrance is None by default (ParkMap::new)
-    
+
             world.spawn_visitor();
-    
+
             assert!(world.visitors.is_empty());
             assert!(world.density.is_empty());
         }
-    
+
         #[test]
         fn test_spawn_visitor_falls_back_to_entrance_when_no_other_cell_is_walkable() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((5, 3, 0));
             // aucune infrastructure posée : random_walkable_cell ne trouve rien d'autre
-    
+
             world.spawn_visitor();
-    
+
             let visitor = &world.visitors[0];
             assert_eq!(visitor.position, (5.0, 3.0, 0.0));
             assert_eq!(visitor.target, (5, 3, 0));
             assert_eq!(visitor.path, vec![]);
         }
-    
+
         #[test]
         fn test_spawn_visitor_computes_target_and_path_when_another_cell_is_walkable() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
-    
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+
             world.spawn_visitor();
-    
+
             let visitor = &world.visitors[0];
             assert_eq!(visitor.position, (0.0, 0.0, 0.0));
             assert_eq!(visitor.target, (1, 0, 0)); // seul autre candidat possible, déterministe
             assert_eq!(visitor.path, vec![(1, 0, 0)]);
         }
-    
-    
+
         #[test]
         fn test_spawn_visitor_updates_density_at_entrance() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((5, 3, 0));
-    
+
             world.spawn_visitor();
-    
+
             let visitor_id = world.visitors[0].id.clone();
-            let bucket = world.density.get(&(5, 3, 0)).expect("density bucket should exist");
+            let bucket = world
+                .density
+                .get(&(5, 3, 0))
+                .expect("density bucket should exist");
             assert_eq!(bucket, &vec![visitor_id]);
         }
-    
+
         #[test]
         fn test_spawn_visitor_twice_accumulates_density_on_same_cell() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-    
+
             world.spawn_visitor();
             world.spawn_visitor();
-    
+
             assert_eq!(world.visitors.len(), 2);
             let bucket = world.density.get(&(0, 0, 0)).unwrap();
             assert_eq!(bucket.len(), 2);
@@ -334,14 +369,18 @@ mod tests {
     mod tick {
         use crate::balance::VISIT_DURATION_TICKS;
 
-use super::*;
+        use super::*;
 
         #[test]
         fn test_tick_moves_visitor_toward_target() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.spawn_visitor(); // target = (1,0,0), path = [(1,0,0)]
 
@@ -358,8 +397,12 @@ use super::*;
         fn test_tick_moves_visitor_density_bucket_when_crossing_a_cell() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.spawn_visitor();
 
@@ -367,15 +410,22 @@ use super::*;
 
             let visitor_id = world.visitors[0].id.clone();
             assert_eq!(world.visitors[0].position, (1.0, 0.0, 0.0));
-            assert!(!world.density.contains_key(&(0, 0, 0)), "old cell bucket should be removed once empty");
+            assert!(
+                !world.density.contains_key(&(0, 0, 0)),
+                "old cell bucket should be removed once empty"
+            );
             assert_eq!(world.density.get(&(1, 0, 0)), Some(&vec![visitor_id]));
         }
 
         #[test]
         fn test_tick_speed_decreases_with_density_on_current_cell() {
             let mut lone_world = GameWorld::new();
-            lone_world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            lone_world.park_map.set_infrastructure(5, 0, 0, InfrastructureShape::Path);
+            lone_world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            lone_world
+                .park_map
+                .set_infrastructure(5, 0, 0, InfrastructureShape::Path);
             lone_world.visitors.push(Visitor {
                 id: "lone".into(),
                 position: (0.0, 0.0, 0.0),
@@ -388,7 +438,9 @@ use super::*;
             lone_world.density.insert((0, 0, 0), vec!["lone".into()]);
 
             let mut crowded_world = GameWorld::new();
-            crowded_world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            crowded_world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             crowded_world.visitors.push(Visitor {
                 id: "v0".into(),
                 position: (0.0, 0.0, 0.0),
@@ -417,8 +469,12 @@ use super::*;
         #[test]
         fn test_tick_applies_repulsion_between_visitors_sharing_a_cell() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(5, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(5, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -432,18 +488,24 @@ use super::*;
             world.visitors.push(Visitor {
                 id: "b".into(),
                 position: (0.0, 0.15, 0.0), // within AVOIDING_RADIUS of "a"
-                path: vec![], // stays put, isolates "a"'s reaction to the repulsion
+                path: vec![],               // stays put, isolates "a"'s reaction to the repulsion
                 target: (0, 0, 0),
                 ticks_since_spawn: 0,
                 heading: (0.0, 0.0, 0.0),
                 is_leaving: false,
             });
-            world.density.insert((0, 0, 0), vec!["a".into(), "b".into()]);
+            world
+                .density
+                .insert((0, 0, 0), vec!["a".into(), "b".into()]);
 
             world.tick(0.05);
 
             let a = world.visitors.iter().find(|v| v.id == "a").unwrap();
-            assert!(a.position.1 < 0.0, "a should be pushed away from b (at +y), got y = {}", a.position.1);
+            assert!(
+                a.position.1 < 0.0,
+                "a should be pushed away from b (at +y), got y = {}",
+                a.position.1
+            );
         }
 
         #[test]
@@ -470,8 +532,12 @@ use super::*;
         fn test_tick_marks_crossed_chunk_as_dirty() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.spawn_visitor();
 
@@ -489,14 +555,22 @@ use super::*;
 
             assert!(world.dirty_chunks.is_empty());
         }
-        
+
         #[test]
         fn test_tick_recalculates_path_when_next_cell_becomes_impraticable() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(0, 1, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 1, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 1, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 1, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -513,15 +587,26 @@ use super::*;
             world.tick(0.01); // dt petit : on veut juste voir le chemin recalculé, pas l'arrivée
 
             let visitor = &world.visitors[0];
-            assert_ne!(visitor.path.first(), Some(&(1, 0, 0)), "should not still point at the blocked cell");
-            assert!(!visitor.path.is_empty(), "an alternate route exists via (0,1,0)");
+            assert_ne!(
+                visitor.path.first(),
+                Some(&(1, 0, 0)),
+                "should not still point at the blocked cell"
+            );
+            assert!(
+                !visitor.path.is_empty(),
+                "an alternate route exists via (0,1,0)"
+            );
         }
 
         #[test]
         fn test_tick_clears_path_when_target_becomes_unreachable_after_recalculation() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -544,7 +629,9 @@ use super::*;
         fn test_tick_syncs_visitors_in_park_metric() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
             world.spawn_visitor();
             world.spawn_visitor();
@@ -558,8 +645,12 @@ use super::*;
         fn test_tick_redirects_expired_visitor_toward_exit() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -581,7 +672,9 @@ use super::*;
         #[test]
         fn test_tick_removes_visitor_who_reached_the_exit() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -605,12 +698,17 @@ use super::*;
         fn test_tick_spawns_a_visitor_every_spawn_interval() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
 
             for _ in 0..SPAWN_INTERVAL_TICKS - 1 {
                 world.tick(0.01);
             }
-            assert!(world.visitors.is_empty(), "no spawn before the interval is reached");
+            assert!(
+                world.visitors.is_empty(),
+                "no spawn before the interval is reached"
+            );
 
             world.tick(0.01); // atteint exactement SPAWN_INTERVAL_TICKS
             assert_eq!(world.visitors.len(), 1);
@@ -619,8 +717,12 @@ use super::*;
         #[test]
         fn test_tick_assigns_a_new_target_when_visitor_arrives_and_is_not_leaving() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -642,8 +744,12 @@ use super::*;
         #[test]
         fn test_tick_does_not_assign_new_target_when_visitor_is_leaving() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
 
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -664,8 +770,8 @@ use super::*;
     }
 
     mod redirect_if_expired {
-        use crate::balance::VISIT_DURATION_TICKS;
         use super::*;
+        use crate::balance::VISIT_DURATION_TICKS;
 
         fn expired_visitor_at(position: (i32, i32, i32)) -> Visitor {
             Visitor {
@@ -895,7 +1001,8 @@ use super::*;
             density_over_cap.insert((0, 0, 0), bucket_over_cap);
 
             let repulsion_at_cap = compute_repulsion(&v, &density_at_cap, &positions, (0, 0, 0));
-            let repulsion_over_cap = compute_repulsion(&v, &density_over_cap, &positions, (0, 0, 0));
+            let repulsion_over_cap =
+                compute_repulsion(&v, &density_over_cap, &positions, (0, 0, 0));
 
             assert_eq!(
                 repulsion_at_cap, repulsion_over_cap,
@@ -903,7 +1010,6 @@ use super::*;
             );
         }
     }
-
 
     mod update_density_and_dirty_chunks {
         use super::*;
@@ -914,7 +1020,13 @@ use super::*;
             density.insert((0, 0, 0), vec!["a".into()]);
             let mut dirty_chunks = HashSet::new();
 
-            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (0, 0, 0));
+            update_density_and_dirty_chunks(
+                &mut density,
+                &mut dirty_chunks,
+                &"a".to_string(),
+                (0, 0, 0),
+                (0, 0, 0),
+            );
 
             assert_eq!(density.get(&(0, 0, 0)), Some(&vec!["a".to_string()]));
             assert!(dirty_chunks.is_empty());
@@ -926,7 +1038,13 @@ use super::*;
             density.insert((0, 0, 0), vec!["a".into()]);
             let mut dirty_chunks = HashSet::new();
 
-            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+            update_density_and_dirty_chunks(
+                &mut density,
+                &mut dirty_chunks,
+                &"a".to_string(),
+                (0, 0, 0),
+                (1, 0, 0),
+            );
 
             assert_eq!(density.get(&(1, 0, 0)), Some(&vec!["a".to_string()]));
         }
@@ -937,7 +1055,13 @@ use super::*;
             density.insert((0, 0, 0), vec!["a".into()]);
             let mut dirty_chunks = HashSet::new();
 
-            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+            update_density_and_dirty_chunks(
+                &mut density,
+                &mut dirty_chunks,
+                &"a".to_string(),
+                (0, 0, 0),
+                (1, 0, 0),
+            );
 
             assert!(!density.contains_key(&(0, 0, 0)));
         }
@@ -948,7 +1072,13 @@ use super::*;
             density.insert((0, 0, 0), vec!["a".into(), "b".into()]);
             let mut dirty_chunks = HashSet::new();
 
-            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+            update_density_and_dirty_chunks(
+                &mut density,
+                &mut dirty_chunks,
+                &"a".to_string(),
+                (0, 0, 0),
+                (1, 0, 0),
+            );
 
             assert_eq!(density.get(&(0, 0, 0)), Some(&vec!["b".to_string()]));
         }
@@ -959,20 +1089,30 @@ use super::*;
             density.insert((0, 0, 0), vec!["a".into()]);
             let mut dirty_chunks = HashSet::new();
 
-            update_density_and_dirty_chunks(&mut density, &mut dirty_chunks, &"a".to_string(), (0, 0, 0), (1, 0, 0));
+            update_density_and_dirty_chunks(
+                &mut density,
+                &mut dirty_chunks,
+                &"a".to_string(),
+                (0, 0, 0),
+                (1, 0, 0),
+            );
 
             assert!(dirty_chunks.contains(&(1, 0)));
         }
     }
-        mod pause_resume {
+    mod pause_resume {
         use super::*;
 
         #[test]
         fn test_tick_does_nothing_when_paused() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             world.spawn_visitor();
             let position_before = world.visitors[0].position;
 
@@ -988,8 +1128,12 @@ use super::*;
         fn test_tick_resumes_normally_after_being_unpaused() {
             let mut world = GameWorld::new();
             world.park_map.entrance = Some((0, 0, 0));
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            world.park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             world.spawn_visitor();
 
             world.paused = true;
@@ -1007,7 +1151,9 @@ use super::*;
         #[test]
         fn test_reset_visitors_clears_visitors_and_density() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             world.visitors.push(Visitor {
                 id: "a".into(),
                 position: (0.0, 0.0, 0.0),
@@ -1028,7 +1174,9 @@ use super::*;
         #[test]
         fn test_reset_visitors_does_not_touch_map_or_tick_count() {
             let mut world = GameWorld::new();
-            world.park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            world
+                .park_map
+                .set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             world.tick_count = 42;
             world.visitors.push(Visitor {
                 id: "a".into(),
@@ -1046,5 +1194,4 @@ use super::*;
             assert!(world.park_map.get_infrastructure(0, 0, 0).is_some());
         }
     }
-
 }

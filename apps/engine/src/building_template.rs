@@ -31,14 +31,14 @@ pub struct BuildingCatalog {
 }
 
 impl BuildingCatalog {
-pub fn load(source: CatalogSource) -> Result<BuildingCatalog, CatalogLoadError> {
+    pub fn load(source: CatalogSource) -> Result<BuildingCatalog, CatalogLoadError> {
         let raw = match source {
             CatalogSource::Embedded(json) => json.to_string(),
             CatalogSource::File(path) => std::fs::read_to_string(&path)
                 .map_err(|e| CatalogLoadError::InvalidJson(e.to_string()))?,
         };
-        let raw_catalog: RawCatalog = serde_json::from_str(&raw)
-            .map_err(|e| CatalogLoadError::InvalidJson(e.to_string()))?;
+        let raw_catalog: RawCatalog =
+            serde_json::from_str(&raw).map_err(|e| CatalogLoadError::InvalidJson(e.to_string()))?;
 
         let mut templates = HashMap::new();
         for template in raw_catalog.templates {
@@ -84,8 +84,8 @@ pub struct ResourceFlow {
 
 #[derive(Deserialize, Debug)]
 pub struct BuildingTemplate {
-    pub template_id : String,
-    pub name : String,
+    pub template_id: String,
+    pub name: String,
     pub category: BuildingCategory,
     pub footprint: Vec<(i32, i32)>,
     pub cost: u32,
@@ -96,7 +96,7 @@ pub struct BuildingTemplate {
     pub resource_vector: Option<Vec<ResourceFlow>>,
     pub tags: Vec<String>,
     pub intensity: Option<u8>,
-    pub cycle_capacity : Option<u32>,
+    pub cycle_capacity: Option<u32>,
     pub cycle_duration_ticks: Option<u32>,
     pub price_per_use: Option<u32>,
     pub unlock_biome: Option<String>,
@@ -133,7 +133,10 @@ mod test {
         }"#;
 
         fn write_temp_json(content: &str) -> std::path::PathBuf {
-            let path = std::env::temp_dir().join(format!("building_catalog_test_{}.json", uuid::Uuid::new_v4()));
+            let path = std::env::temp_dir().join(format!(
+                "building_catalog_test_{}.json",
+                uuid::Uuid::new_v4()
+            ));
             std::fs::write(&path, content).unwrap();
             path
         }
@@ -167,7 +170,9 @@ mod test {
 
             let result = BuildingCatalog::load(CatalogSource::Embedded(json));
 
-            assert!(matches!(result, Err(CatalogLoadError::DuplicateTemplateId(id)) if id == "dup"));
+            assert!(
+                matches!(result, Err(CatalogLoadError::DuplicateTemplateId(id)) if id == "dup")
+            );
         }
 
         #[test]
@@ -235,7 +240,10 @@ mod test {
             let template: BuildingTemplate = serde_json::from_str(json).unwrap();
 
             assert_eq!(template.category, BuildingCategory::Attraction);
-            assert_eq!(template.tags, vec!["sensations".to_string(), "spectacle".to_string()]);
+            assert_eq!(
+                template.tags,
+                vec!["sensations".to_string(), "spectacle".to_string()]
+            );
             assert_eq!(template.intensity, Some(5));
             assert_eq!(template.cycle_duration_ticks, Some(2400));
             assert_eq!(template.price_per_use, None);
