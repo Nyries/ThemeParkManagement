@@ -3,16 +3,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    balance::{MOVEMENT_COST_PATH, MOVEMENT_COST_RAMP, MOVEMENT_COST_STAIRS},
     building_template::BuildingCatalog,
     simulation::{ErrorCode, Rotation},
 };
 
-pub(crate) fn movement_cost_for(material_id: &str) -> u32 {
-    match material_id {
-        "path" => 1,
-        "stairs" | "ramp" => 2,
-        "grass" => 5,
-        _ => 10,
+// Cost is driven by the infrastructure a visitor walks on, never the bare
+// terrain underneath — a visitor never walks on unbuilt terrain, cf.
+// `is_walkable()`. See TPM-138.
+pub(crate) fn movement_cost_for(shape: &InfrastructureShape) -> u32 {
+    match shape {
+        InfrastructureShape::Path => MOVEMENT_COST_PATH,
+        InfrastructureShape::Ramp { .. } => MOVEMENT_COST_RAMP,
+        InfrastructureShape::Stairs { .. } => MOVEMENT_COST_STAIRS,
     }
 }
 
@@ -353,15 +356,13 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_movement_cost_for_with_different_material_id() {
-            let mut result = movement_cost_for("path");
+        fn test_movement_cost_for_with_different_infrastructure() {
+            let mut result = movement_cost_for(&InfrastructureShape::Path);
             assert_eq!(result, 1);
-            result = movement_cost_for("ramp");
+            result = movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
             assert_eq!(result, 2);
-            result = movement_cost_for("grass");
-            assert_eq!(result, 5);
-            result = movement_cost_for("water");
-            assert_eq!(result, 10);
+            result = movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
+            assert_eq!(result, 3);
         }
 
         #[test]
