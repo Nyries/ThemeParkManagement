@@ -11,7 +11,7 @@ use crate::{
     },
     building_template::{BuildingCatalog, BuildingCategory, CatalogSource},
     map::{Bounds3d, BuildingId, ParkMap, base_speed_for},
-    queue::{QueueState, advance_toward},
+    queue::{QueueState, advance_toward, estimated_wait_for},
     visitor::{
         ENTERTAINMENT, Visitor, VisitorId, affinity_for, gain_for, grow_needs, lane_bias_strength,
         lateral_repulsion_factor_for, novelty_for, penalty_for, perpendicular_of, relieve_need,
@@ -130,6 +130,7 @@ impl GameWorld {
                 v,
                 &self.park_map,
                 &self.building_catalog,
+                &self.queues,
                 old_cell,
                 self.tick_count,
             );
@@ -426,11 +427,14 @@ fn template_utility(v: &Visitor, template: &crate::building_template::BuildingTe
 }
 
 /// Picks the reachable cell with the best destination score. Only strictly positive
-/// scores count — a cell with no relevant building never outscores wandering.
+/// scores count — a cell with no relevant building never outscores wandering. `coût`
+/// adds the estimated queue wait (0 if the adjacent building has no active queue) to
+/// the plain movement cost, so a saturated queue naturally loses out to other targets.
 fn best_destination(
     v: &Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
+    queues: &HashMap<String, QueueState>,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) -> Option<(i32, i32, i32)> {
@@ -439,15 +443,23 @@ fn best_destination(
         .keys()
         .filter(|&&cell| cell != old_cell)
         .filter_map(|&cell| {
-            let (_, cost) = park_map.find_path(old_cell, cell)?;
-            let template = adjacent_building(park_map, cell)
-                .and_then(|building| catalog.get(&building.template_id));
+            let (_, movement_cost) = park_map.find_path(old_cell, cell)?;
+            let building = adjacent_building(park_map, cell);
+            let template = building.and_then(|b| catalog.get(&b.template_id));
             let utility = template.map(|t| template_utility(v, t)).unwrap_or(0.0);
             let affinity = template
                 .map(|template| affinity_for(&v.profile, &template.tags))
                 .unwrap_or(AFFINITY_DEFAULT);
             let novelty = novelty_for(v.last_visited.get(&cell).copied(), current_tick);
-            let score = score_for(utility, affinity, novelty, cost as f32);
+            let wait = match (building, template) {
+                (Some(b), Some(t)) => queues
+                    .get(&b.building_id)
+                    .map(|queue| estimated_wait_for(queue, t))
+                    .unwrap_or(0.0),
+                _ => 0.0,
+            };
+            let cost = movement_cost as f32 + wait;
+            let score = score_for(utility, affinity, novelty, cost);
             Some((cell, score))
         })
         .filter(|&(_, score)| score > 0.0)
@@ -459,13 +471,14 @@ fn assign_new_target_if_arrived(
     v: &mut Visitor,
     park_map: &ParkMap,
     catalog: &BuildingCatalog,
+    queues: &HashMap<String, QueueState>,
     old_cell: (i32, i32, i32),
     current_tick: u64,
 ) {
     if v.path.is_empty() && !v.is_leaving {
         relieve_needs_at_arrival(v, park_map, catalog, old_cell, current_tick);
 
-        let new_target = best_destination(v, park_map, catalog, old_cell, current_tick)
+        let new_target = best_destination(v, park_map, catalog, queues, old_cell, current_tick)
             .or_else(|| park_map.random_walkable_cell(old_cell))
             .unwrap_or(old_cell);
         v.target = new_target;
@@ -1788,6 +1801,77 @@ mod tests {
             .unwrap()
         }
 
+        fn catalog_with_two_identical_coasters() -> BuildingCatalog {
+            BuildingCatalog::load(CatalogSource::Embedded(
+                r#"{
+                    "templates": [
+                        {
+                            "template_id": "coaster",
+                            "name": "Coaster",
+                            "category": "Attraction",
+                            "footprint": [[0,0]],
+                            "cost": 100,
+                            "visitor_behavior": "long_stay",
+                            "crossing_flags": { "bridge_above_allowed": false, "tunnel_below_allowed": false },
+                            "needs_relief": {},
+                            "tags": ["thrill"],
+                            "cycle_capacity": 1,
+                            "cycle_duration_ticks": 1000
+                        }
+                    ]
+                }"#,
+            ))
+            .unwrap()
+        }
+
+        #[test]
+        fn test_prefers_the_attraction_with_the_shorter_estimated_queue_wait() {
+            let mut park_map = ParkMap::new("m".into(), Bounds3d::new(-5, 5, -5, 5, -1, 1));
+            park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
+            park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path); // adjacent to busy
+            park_map.set_infrastructure(-1, 0, 0, InfrastructureShape::Path); // adjacent to free
+            park_map.set_building(
+                2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "busy".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            park_map.set_building(
+                -2,
+                0,
+                0,
+                BuildingId {
+                    building_id: "free".into(),
+                    template_id: "coaster".into(),
+                },
+            );
+            let mut queues: HashMap<String, QueueState> = HashMap::new();
+            queues.insert(
+                "busy".to_string(),
+                QueueState {
+                    chain: vec![(1, 0, 0)],
+                    occupants: (0..5).map(|i| i.to_string()).collect(),
+                },
+            );
+            let mut v = arrived_visitor();
+            v.needs
+                .insert(crate::visitor::ENTERTAINMENT.to_string(), 90.0);
+
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &catalog_with_two_identical_coasters(),
+                &queues,
+                (0, 0, 0),
+                0,
+            );
+
+            assert_eq!(v.target, (-1, 0, 0)); // free: no queue wait, same utility/affinity/cost otherwise
+        }
+
         #[test]
         fn test_prefers_an_attraction_with_no_declared_needs_relief_over_wandering_when_entertainment_is_urgent() {
             let mut park_map = ParkMap::new("m".into(), Bounds3d::new(0, 5, 0, 5, -1, 1));
@@ -1811,6 +1895,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_attraction_with_no_declared_needs_relief(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1853,6 +1938,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_thrill_and_family_rides(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1866,7 +1952,14 @@ mod tests {
             let mut v = arrived_visitor();
             v.path = vec![(2, 2, 0)];
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert_eq!(v.path, vec![(2, 2, 0)]);
         }
@@ -1877,7 +1970,14 @@ mod tests {
             let mut v = arrived_visitor();
             v.is_leaving = true;
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert!(v.path.is_empty());
             assert_eq!(v.target, (0, 0, 0));
@@ -1890,7 +1990,14 @@ mod tests {
             park_map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert_eq!(v.target, (1, 0, 0)); // only other candidate, deterministic
             assert_eq!(v.path, vec![(1, 0, 0)]);
@@ -1903,7 +2010,14 @@ mod tests {
             park_map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
             let mut v = arrived_visitor();
 
-            assign_new_target_if_arrived(&mut v, &park_map, &empty_catalog(), (0, 0, 0), 0);
+            assign_new_target_if_arrived(
+                &mut v,
+                &park_map,
+                &empty_catalog(),
+                &HashMap::new(),
+                (0, 0, 0),
+                0,
+            );
 
             assert!(v.path.is_empty());
         }
@@ -1931,6 +2045,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
+                &HashMap::new(),
                 (0, 0, 0),
                 0,
             );
@@ -1960,6 +2075,7 @@ mod tests {
                 &mut v,
                 &park_map,
                 &catalog_with_snack_stand(),
+                &HashMap::new(),
                 (0, 0, 0),
                 42,
             );

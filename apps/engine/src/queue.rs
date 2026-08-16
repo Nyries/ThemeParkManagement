@@ -1,6 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use crate::balance::QUEUE_SPACING_FACTOR;
+use crate::building_template::BuildingTemplate;
 use crate::map::{InfrastructureShape, ParkMap};
 use crate::visitor::VisitorId;
 
@@ -26,6 +27,17 @@ impl QueueState {
     /// Whether the physical queue is already at capacity (see `queue_capacity`).
     pub fn is_full(&self, visitor_diameter: f32) -> bool {
         self.occupants.len() >= queue_capacity(&self.chain, visitor_diameter)
+    }
+}
+
+/// Estimated ticks before a spot frees up: `occupants × temps moyen par cycle ÷
+/// capacité par cycle`. 0 if the template doesn't declare cycle capacity/duration.
+pub fn estimated_wait_for(queue: &QueueState, template: &BuildingTemplate) -> f32 {
+    match (template.cycle_capacity, template.cycle_duration_ticks) {
+        (Some(capacity), Some(duration)) if capacity > 0 => {
+            queue.occupants.len() as f32 * duration as f32 / capacity as f32
+        }
+        _ => 0.0,
     }
 }
 
@@ -437,6 +449,70 @@ mod tests {
             };
 
             assert!(!state.is_full(0.2));
+        }
+    }
+
+    mod estimated_wait_for {
+        use super::*;
+        use crate::building_template::{BuildingCategory, CrossingFlags, VisitorBehavior};
+
+        fn attraction_template(
+            cycle_capacity: Option<u32>,
+            cycle_duration_ticks: Option<u32>,
+        ) -> BuildingTemplate {
+            BuildingTemplate {
+                template_id: "coaster".into(),
+                name: "Coaster".into(),
+                category: BuildingCategory::Attraction,
+                footprint: vec![(0, 0)],
+                cost: 100,
+                visitor_behavior: VisitorBehavior::LongStay,
+                crossing_flags: CrossingFlags {
+                    bridge_above_allowed: false,
+                    tunnel_below_allowed: false,
+                },
+                construction_time_ticks: None,
+                needs_relief: Default::default(),
+                resource_vector: None,
+                tags: vec![],
+                intensity: None,
+                cycle_capacity,
+                cycle_duration_ticks,
+                price_per_use: None,
+                unlock_biome: None,
+            }
+        }
+
+        fn queue_with_occupants(count: usize) -> QueueState {
+            QueueState {
+                chain: vec![(0, 0, 0)],
+                occupants: (0..count).map(|i| i.to_string()).collect(),
+            }
+        }
+
+        #[test]
+        fn test_zero_when_the_template_has_no_cycle_capacity_or_duration() {
+            let queue = queue_with_occupants(3);
+            let template = attraction_template(None, None);
+
+            assert_eq!(estimated_wait_for(&queue, &template), 0.0);
+        }
+
+        #[test]
+        fn test_zero_for_an_empty_queue() {
+            let queue = queue_with_occupants(0);
+            let template = attraction_template(Some(20), Some(2400));
+
+            assert_eq!(estimated_wait_for(&queue, &template), 0.0);
+        }
+
+        #[test]
+        fn test_scales_with_occupants_and_cycle_duration_over_capacity() {
+            let queue = queue_with_occupants(10);
+            let template = attraction_template(Some(20), Some(2400));
+
+            // 10 occupants * 2400 ticks / 20 capacity
+            assert_eq!(estimated_wait_for(&queue, &template), 1200.0);
         }
     }
 }
