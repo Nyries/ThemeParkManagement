@@ -29,7 +29,7 @@ fn load_default_map() -> Result<ParkMap, MapLoadError> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting the simulation engine!");
+    println!("Starting the simulation engine! (v{})", env!("APP_VERSION"));
 
     let park_map = load_default_map()?;
 
