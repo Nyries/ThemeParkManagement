@@ -3,10 +3,10 @@ mod satisfaction;
 
 use movement::{atternuate_lateral_repulsion, distance, lerp_direction, normalize};
 
+pub(crate) use movement::{direction, weighted_lane_bias};
 pub use movement::{
     lane_bias_strength, lateral_repulsion_factor_for, perpendicular_of, repulsion_force, speed_at,
 };
-pub(crate) use movement::{direction, weighted_lane_bias};
 pub use satisfaction::{
     gain_for, grow_needs, novelty_for, penalty_for, relieve_need, score_for, update_satisfaction,
     utility_for,
