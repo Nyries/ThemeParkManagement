@@ -1,13 +1,14 @@
 {
   "name": "ThemeParkManagement",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "",
-  "private":true,
+  "private": true,
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "turbo run dev",
-    "build": "turbo run build"
+    "build": "turbo run build",
+    "sync-version": "node scripts/sync-version.mjs"
   },
   "keywords": [],
   "author": "",
