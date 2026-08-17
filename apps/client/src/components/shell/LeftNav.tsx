@@ -28,6 +28,9 @@ export function LeftNav() {
         {NAV_ENTRIES.map((entry) => (
           <NavItem key={entry.label} entry={entry} />
         ))}
+        <span className="mt-auto px-3 text-xs text-sidebar-foreground/40">
+          v{__APP_VERSION__}
+        </span>
       </nav>
     </TooltipProvider>
   );
