@@ -10,8 +10,6 @@ pub const DENSITY_CAP: usize = 5;
 /// never leaves its cell, so density there could only ever grow, never recover.
 pub const SPEED_FLOOR_AT_MAX_DENSITY: f32 = 0.1;
 
-pub const VISIT_DURATION_TICKS: u64 = 1000;
-
 pub const TICK_INTERVAL: f32 = 0.05; // seconds
 pub const SPAWN_INTERVAL_TICKS: u64 = 20; // ticks
 

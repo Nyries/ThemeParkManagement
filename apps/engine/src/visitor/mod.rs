@@ -17,8 +17,10 @@ use std::collections::HashMap;
 
 use crate::balance::{
     AFFINITY_DEFAULT, COMFORT_THRESHOLD_DEFAULT, COMFORT_THRESHOLD_VARIANCE, STEERING_FACTOR,
-    VISIT_DURATION_TICKS,
 };
+
+/// Placeholder to replace by a calculated value
+pub const VISIT_DURATION_TICKS: u64 = 1000;
 
 pub type VisitorId = String;
 
@@ -70,8 +72,8 @@ pub fn pick_profile(rng: &mut impl Rng) -> VisitorProfile {
     profiles[idx].clone()
 }
 
-/// Mean affinity across a candidate's tags, centered on `AFFINITY_DEFAULT` rather than
-/// 0 — a 0 factor would zero out `utilité × affinité` even for a strongly-wanted need.
+/// Mean affinity across a candidate's tags, centered on `AFFINITY_DEFAULT` rather than 0
+/// A 0 factor would zero out `utilité × affinité` even for a strongly-wanted need.
 pub fn affinity_for(profile: &VisitorProfile, tags: &[String]) -> f32 {
     if tags.is_empty() {
         return AFFINITY_DEFAULT;
@@ -98,25 +100,16 @@ pub struct Visitor {
     pub ticks_since_spawn: u64,
     pub heading: (f32, f32, f32),
     pub is_leaving: bool,
-    /// Drawn at spawn, see `Visitor::new`.
     pub profile: VisitorProfile,
-    /// Level per need, 0-100, grows over time/distance and is relieved by buildings.
     pub needs: HashMap<String, f32>,
-    /// Individual comfort threshold per need, drawn at spawn (see `Visitor::new`).
     pub comfort_thresholds: HashMap<String, f32>,
-    /// Cumulative satisfaction, exponential moving average of (gain - penalty). 0 = neutral.
     pub satisfaction: f32,
-    /// Tick each cell was last targeted, for the novelty factor — scoped to the visit.
     pub last_visited: HashMap<(i32, i32, i32), u64>,
-    /// Consecutive near-zero-movement ticks despite nonzero speed (head-on standoff).
     pub stall_ticks: u64,
-    /// `Some(attraction_building_id)` while waiting in that attraction's queue — governed
-    /// by continuous FIFO advancement (`queue::QueueState`) instead of `path`/A*.
     pub queue_attraction: Option<String>,
 }
 
 impl Visitor {
-    /// Fresh visitor at `position`; caller still sets `path`/`target`.
     pub fn new(id: VisitorId, position: (f32, f32, f32)) -> Self {
         let mut rng = rand::thread_rng();
         let profile = pick_profile(&mut rng);
