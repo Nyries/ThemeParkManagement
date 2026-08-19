@@ -129,7 +129,11 @@ pub fn position_along_chain(chain: &[(i32, i32, i32)], distance: f32) -> Option<
     for w in chain.windows(2) {
         let segment_len = dist(w[0], w[1]);
         if remaining <= segment_len {
-            let t = if segment_len > 0.0 { remaining / segment_len } else { 0.0 };
+            let t = if segment_len > 0.0 {
+                remaining / segment_len
+            } else {
+                0.0
+            };
             let (x0, y0, z0) = (w[0].0 as f32, w[0].1 as f32, w[0].2 as f32);
             let (x1, y1, z1) = (w[1].0 as f32, w[1].1 as f32, w[1].2 as f32);
             return Some((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t));
