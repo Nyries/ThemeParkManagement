@@ -43,6 +43,7 @@ function buildPlaceInfrastructureCommand(
     command: {
       $case: "placeInfrastructure",
       placeInfrastructure: {
+        // Hard-coded right now
         kind: InfrastructureKind.INFRASTRUCTURE_KIND_PATH,
         toZ: 0,
         coordinates: [{ x, y, z: 0 }],

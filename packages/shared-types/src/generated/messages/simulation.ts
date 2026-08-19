@@ -185,7 +185,7 @@ export interface PlaceInfrastructure {
   toZ: number;
   coordinates: Coord[];
   /** Required when kind == INFRASTRUCTURE_KIND_QUEUE, ignored otherwise */
-  attractionBuildingId: string;
+  attractionBuildingId?: string | undefined;
 }
 
 export interface RemoveInfrastructure {
@@ -442,7 +442,7 @@ export const ApplyTerrain: MessageFns<ApplyTerrain> = {
 };
 
 function createBasePlaceInfrastructure(): PlaceInfrastructure {
-  return { kind: 0, toZ: 0, coordinates: [], attractionBuildingId: "" };
+  return { kind: 0, toZ: 0, coordinates: [], attractionBuildingId: undefined };
 }
 
 export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
@@ -456,7 +456,7 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     for (const v of message.coordinates) {
       Coord.encode(v!, writer.uint32(26).fork()).join();
     }
-    if (message.attractionBuildingId !== "") {
+    if (message.attractionBuildingId !== undefined) {
       writer.uint32(34).string(message.attractionBuildingId);
     }
     return writer;
@@ -521,7 +521,7 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
         ? globalThis.String(object.attractionBuildingId)
         : isSet(object.attraction_building_id)
         ? globalThis.String(object.attraction_building_id)
-        : "",
+        : undefined,
     };
   },
 
@@ -536,7 +536,7 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     if (message.coordinates?.length) {
       obj.coordinates = message.coordinates.map((e) => Coord.toJSON(e));
     }
-    if (message.attractionBuildingId !== "") {
+    if (message.attractionBuildingId !== undefined) {
       obj.attractionBuildingId = message.attractionBuildingId;
     }
     return obj;
@@ -550,7 +550,7 @@ export const PlaceInfrastructure: MessageFns<PlaceInfrastructure> = {
     message.kind = object.kind ?? 0;
     message.toZ = object.toZ ?? 0;
     message.coordinates = object.coordinates?.map((e) => Coord.fromPartial(e)) || [];
-    message.attractionBuildingId = object.attractionBuildingId ?? "";
+    message.attractionBuildingId = object.attractionBuildingId ?? undefined;
     return message;
   },
 };

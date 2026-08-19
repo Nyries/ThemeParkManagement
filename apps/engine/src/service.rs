@@ -74,13 +74,20 @@ impl SimulationService for SimulationEngineService {
                         Ok(InfrastructureKind::Stairs) => {
                             Ok(InfrastructureShape::Stairs { to_z: p.to_z })
                         }
-                        Ok(InfrastructureKind::Queue) => world
-                            .park_map
-                            .building
-                            .values()
-                            .find(|b| b.building_id == p.attraction_building_id)
-                            .cloned()
-                            .map(|attraction_id| InfrastructureShape::Queue { attraction_id })
+                        Ok(InfrastructureKind::Queue) => p
+                            .attraction_building_id
+                            .as_deref()
+                            .and_then(|attraction_building_id| {
+                                world
+                                    .park_map
+                                    .building
+                                    .values()
+                                    .find(|b| b.building_id == attraction_building_id)
+                                    .cloned()
+                            })
+                            .map(|attraction_id| InfrastructureShape::Queue {
+                               attraction_id,
+                            })
                             .ok_or(ErrorCode::ErrorInvalidTemplate),
                         _ => Err(ErrorCode::ErrorEmpty),
                     };
@@ -255,11 +262,17 @@ impl SimulationService for SimulationEngineService {
             .map(|(&(x, y, z), shape)| {
                 let (kind, to_z, attraction_building_id) = match shape {
                     InfrastructureShape::Path => (InfrastructureKind::Path, 0, String::new()),
-                    InfrastructureShape::Ramp { to_z } => (InfrastructureKind::Ramp, *to_z, String::new()),
-                    InfrastructureShape::Stairs { to_z } => (InfrastructureKind::Stairs, *to_z, String::new()),
-                    InfrastructureShape::Queue { attraction_id } => {
-                        (InfrastructureKind::Queue, 0, attraction_id.building_id.clone())
+                    InfrastructureShape::Ramp { to_z } => {
+                        (InfrastructureKind::Ramp, *to_z, String::new())
                     }
+                    InfrastructureShape::Stairs { to_z } => {
+                        (InfrastructureKind::Stairs, *to_z, String::new())
+                    }
+                    InfrastructureShape::Queue { attraction_id } => (
+                        InfrastructureKind::Queue,
+                        0,
+                        attraction_id.building_id.clone(),
+                    ),
                 };
                 InfrastructureCell {
                     coord: Some(Coord { x, y, z }),
@@ -367,7 +380,7 @@ mod tests {
             kind: InfrastructureKind::Path.into(),
             to_z: 0,
             coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
-            attraction_building_id: String::new(),
+            attraction_building_id: None,
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
@@ -411,7 +424,7 @@ mod tests {
             kind: InfrastructureKind::Queue.into(),
             to_z: 0,
             coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
-            attraction_building_id: "b1".into(),
+            attraction_building_id: Some("b1".to_string()),
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),
@@ -439,7 +452,7 @@ mod tests {
             kind: InfrastructureKind::Queue.into(),
             to_z: 0,
             coordinates: vec![Coord { x: 0, y: 0, z: 0 }],
-            attraction_building_id: "missing".into(),
+            attraction_building_id: None,
         };
         let request = Request::new(CommandRequest {
             park_id: "1".into(),

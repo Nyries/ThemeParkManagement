@@ -31,7 +31,7 @@ message PlaceInfrastructure {
   InfrastructureKind kind = 1;
   int32 to_z = 2; // Ignored when kind == INFRASTRUCTURE_PATH
   repeated Coord coordinates = 3;
-  string attraction_building_id = 4; // Required when kind == INFRASTRUCTURE_KIND_QUEUE, ignored otherwise
+  optional string attraction_building_id = 4; // Required when kind == INFRASTRUCTURE_KIND_QUEUE, ignored otherwise
 }
 
 message RemoveInfrastructure {
