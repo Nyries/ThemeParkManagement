@@ -89,6 +89,14 @@ describe("Park", () => {
     cleanup();
   });
 
+  it("renders the inspector panel alongside the canvas", () => {
+    mockOnMap.mockReturnValue(new Promise(() => {})); // never resolves: only checking the initial render
+
+    const { getByText } = render(<Park tool={NO_TOOL} onToolChange={vi.fn()} />);
+
+    expect(getByText("Aucune sélection")).toBeInTheDocument();
+  });
+
   it("fetches the map once on mount", () => {
     mockOnMap.mockReturnValue(new Promise(() => {})); // never resolves: only checking the call happens
 
