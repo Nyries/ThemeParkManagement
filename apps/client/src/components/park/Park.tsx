@@ -16,7 +16,10 @@ import { syncVisitorGraphics } from "../../lib/park/syncVisitors";
 import type { SelectionInfo } from "../../types/park/selection";
 import { nextRotation, type ToolState } from "../../types/park/tool";
 import { Toolbar } from "./Toolbar";
-import { SecondaryToolbar, type SecondaryToolbarHandle } from "./SecondaryToolbar";
+import {
+  SecondaryToolbar,
+  type SecondaryToolbarHandle,
+} from "./SecondaryToolbar";
 import { ParkTopBar } from "../shell/ParkTopBar";
 import { InspectorPanel } from "../shell/InspectorPanel";
 import { Rotation } from "@app/shared-types";
@@ -45,7 +48,12 @@ export function Park({ tool, onToolChange }: ParkProps) {
     toolRef.current = tool;
   }, [tool]);
 
-  useParkKeyboardShortcuts({ containerRef, toolRef, onToolChange, rotateButtonRef });
+  useParkKeyboardShortcuts({
+    containerRef,
+    toolRef,
+    onToolChange,
+    rotateButtonRef,
+  });
 
   // The grid controller (ghost preview + cursor style) lives inside the
   // map-loading effect too (it needs the PixiJS Graphics instances and the
@@ -167,7 +175,10 @@ export function Park({ tool, onToolChange }: ParkProps) {
       app.stage.addChild(ghost);
 
       const containerEl = containerRef.current;
-      containerEl?.addEventListener("pointerleave", controller.handlePointerLeave);
+      containerEl?.addEventListener(
+        "pointerleave",
+        controller.handlePointerLeave,
+      );
       removePointerLeaveListener = () =>
         containerEl?.removeEventListener(
           "pointerleave",
@@ -198,9 +209,9 @@ export function Park({ tool, onToolChange }: ParkProps) {
   }, [sendCommand, onWorldState, onMap]);
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <ParkTopBar balance={balance} visitorCount={visitorCount} />
-      <div className="flex flex-1 min-h-0">
+    <div className="flex h-full w-full">
+      <div className="flex flex-1 flex-col min-w-0">
+        <ParkTopBar balance={balance} visitorCount={visitorCount} />
         {/* Toolbar buttons are real <button> elements: clicking one shifts DOM
         focus there (browser default on mousedown), which would silently kill
         the keyboard shortcuts since they only listen on the canvas container.
@@ -239,8 +250,12 @@ export function Park({ tool, onToolChange }: ParkProps) {
             tabIndex={0}
           />
         </div>
-        <InspectorPanel selection={selection} tool={tool} onToolChange={onToolChange} />
       </div>
+      <InspectorPanel
+        selection={selection}
+        tool={tool}
+        onToolChange={onToolChange}
+      />
     </div>
   );
 }
