@@ -29,9 +29,6 @@ jobs:
 
       - name: Run Clippy (quality gate)
         run: cargo clippy --all-targets --manifest-path apps/engine/Cargo.toml -- -D warnings
-      
-      - name: Run Rust tests
-        run: cargo test --manifest-path apps/engine/Cargo.toml
         
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
