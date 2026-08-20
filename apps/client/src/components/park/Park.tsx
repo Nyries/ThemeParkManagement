@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
 import {
-  canvasHeight,
-  canvasWidth,
   CELL_SIZE,
   getCellColor,
   toScreenX,
@@ -114,9 +112,11 @@ export function Park({ tool, onToolChange }: ParkProps) {
       updateGhostRef.current = controller.updateGhost;
       updateCursorsRef.current = controller.updateCursors;
 
+      const viewportWidth = containerRef.current?.clientWidth ? containerRef.current?.clientWidth: 600 
+      const viewportHeight = containerRef.current?.clientHeight ? containerRef.current?.clientHeight: 800;
       await app.init({
-        width: canvasWidth(width),
-        height: canvasHeight(height),
+        width: viewportWidth,
+        height: viewportHeight,
         background: 0x000000,
       });
 
