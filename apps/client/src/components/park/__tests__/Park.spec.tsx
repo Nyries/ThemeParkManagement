@@ -28,15 +28,27 @@ vi.mock("pixi.js", () => {
 
   class MockText {}
 
+  // Park.tsx adds all visual content (cells/labels/ghost/visitors) to a
+  // camera container, itself the stage's only child — mockStageAddChild
+  // tracks the container's addChild calls so every existing index-based
+  // assertion in this file (mockStageAddChild.mock.calls[0][0] = first
+  // cell, etc.) keeps working unchanged. The stage's own addChild (which
+  // only ever receives that one container) stays untracked.
+  class MockContainer {
+    addChild = mockStageAddChild;
+    removeChild = vi.fn();
+  }
+
   class MockApplication {
     init = mockAppInit;
     destroy = mockAppDestroy;
     canvas = document.createElement("canvas");
-    stage = { addChild: mockStageAddChild, removeChild: vi.fn() };
+    stage = { addChild: vi.fn(), removeChild: vi.fn() };
   }
 
   return {
     Application: MockApplication,
+    Container: MockContainer,
     Graphics: MockGraphics,
     Text: MockText,
   };

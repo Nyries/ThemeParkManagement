@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Text } from "pixi.js";
 import {
   canvasHeight,
   canvasWidth,
@@ -94,6 +94,8 @@ export function Park({ tool, onToolChange }: ParkProps) {
         { length: terrain.length },
         () => [],
       );
+      const cameraContainer = new Container();
+      app.stage.addChild(cameraContainer);
       const visitorGraphics = new Map<string, Graphics>();
       const ghost = new Graphics();
 
@@ -149,7 +151,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
           cell.on("pointerdown", () => controller.handlePointerDown(x, y));
 
           cellGraphics[y][x] = cell;
-          app.stage.addChild(cell);
+          cameraContainer.addChild(cell);
         }
       }
       controller.updateCursors();
@@ -160,7 +162,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
         });
         label.x = toScreenX(x);
         label.y = height * CELL_SIZE;
-        app.stage.addChild(label);
+        cameraContainer.addChild(label);
       }
       for (let y = 0; y < terrain.length; y++) {
         const label = new Text({
@@ -169,10 +171,10 @@ export function Park({ tool, onToolChange }: ParkProps) {
         });
         label.x = 0;
         label.y = toScreenY(y, height);
-        app.stage.addChild(label);
+        cameraContainer.addChild(label);
       }
 
-      app.stage.addChild(ghost);
+      cameraContainer.addChild(ghost);
 
       const containerEl = containerRef.current;
       containerEl?.addEventListener(
@@ -193,7 +195,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
         window.removeEventListener("pointerup", controller.handlePointerUp);
 
       unsubscribeWorldState = onWorldState((state) => {
-        syncVisitorGraphics(app.stage, visitorGraphics, state.visitors, height);
+        syncVisitorGraphics(cameraContainer, visitorGraphics, state.visitors, height);
       });
     });
 
