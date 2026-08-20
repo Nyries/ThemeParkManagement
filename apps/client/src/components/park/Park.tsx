@@ -21,6 +21,7 @@ import {
 import { ParkTopBar } from "../shell/ParkTopBar";
 import { InspectorPanel } from "../shell/InspectorPanel";
 import { Rotation } from "@app/shared-types";
+import { createCameraController } from "@/lib/park/cameraController";
 
 const PARK_ID = "default";
 
@@ -53,7 +54,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
     rotateButtonRef,
   });
 
-  // The grid controller (ghost preview + cursor style) lives inside the
+  // The grid gridController (ghost preview + cursor style) lives inside the
   // map-loading effect too (it needs the PixiJS Graphics instances and the
   // loaded grid data). These expose a way to trigger a redraw from outside
   // that effect whenever the tool changes.
@@ -97,7 +98,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
       const visitorGraphics = new Map<string, Graphics>();
       const ghost = new Graphics();
 
-      const controller = createGridController({
+      const gridController = createGridController({
         parkId: PARK_ID,
         sendCommand,
         toolRef,
@@ -109,11 +110,21 @@ export function Park({ tool, onToolChange }: ParkProps) {
         width,
         height,
       });
-      updateGhostRef.current = controller.updateGhost;
-      updateCursorsRef.current = controller.updateCursors;
+      updateGhostRef.current = gridController.updateGhost;
+      updateCursorsRef.current = gridController.updateCursors;
 
-      const viewportWidth = containerRef.current?.clientWidth ? containerRef.current?.clientWidth: 600 
-      const viewportHeight = containerRef.current?.clientHeight ? containerRef.current?.clientHeight: 800;
+      const viewportWidth = containerRef.current?.clientWidth
+        ? containerRef.current?.clientWidth
+        : 600;
+      const viewportHeight = containerRef.current?.clientHeight
+        ? containerRef.current?.clientHeight
+        : 800;
+
+      const cameraController = createCameraController({
+        cameraContainer,
+        viewportWidth,
+        viewportHeight,
+      });
       await app.init({
         width: viewportWidth,
         height: viewportHeight,
@@ -132,7 +143,7 @@ export function Park({ tool, onToolChange }: ParkProps) {
             y,
             terrain,
             infrastructure,
-            Boolean(controller.buildingGrid[y][x]),
+            Boolean(gridController.buildingGrid[y][x]),
           );
           const cell = new Graphics()
             .rect(toScreenX(x), toScreenY(y, height), CELL_SIZE, CELL_SIZE)
@@ -143,18 +154,18 @@ export function Park({ tool, onToolChange }: ParkProps) {
           // handleCellClick dispatches by the *current* tool (via toolRef),
           // so an occupied cell must remain clickable to be removable later.
           // The cursor itself is set below, once all cells exist, by
-          // controller.updateCursors() — it depends on the active tool, not
+          // gridController.updateCursors() — it depends on the active tool, not
           // on this per-cell setup.
           cell.eventMode = "static";
-          cell.on("pointertap", () => controller.handleCellClick(x, y));
-          cell.on("pointerover", () => controller.handlePointerOver(x, y));
-          cell.on("pointerdown", () => controller.handlePointerDown(x, y));
+          cell.on("pointertap", () => gridController.handleCellClick(x, y));
+          cell.on("pointerover", () => gridController.handlePointerOver(x, y));
+          cell.on("pointerdown", () => gridController.handlePointerDown(x, y));
 
           cellGraphics[y][x] = cell;
           cameraContainer.addChild(cell);
         }
       }
-      controller.updateCursors();
+      gridController.updateCursors();
       for (let x = 0; x < terrain[0].length; x++) {
         const label = new Text({
           text: String(x),
@@ -177,25 +188,33 @@ export function Park({ tool, onToolChange }: ParkProps) {
       cameraContainer.addChild(ghost);
 
       const containerEl = containerRef.current;
+      containerEl?.addEventListener("wheel", cameraController.handleWheel, {
+        passive: false,
+      });
       containerEl?.addEventListener(
         "pointerleave",
-        controller.handlePointerLeave,
+        gridController.handlePointerLeave,
       );
       removePointerLeaveListener = () =>
         containerEl?.removeEventListener(
           "pointerleave",
-          controller.handlePointerLeave,
+          gridController.handlePointerLeave,
         );
 
       // The pointer can be released outside any cell (or outside the canvas
       // entirely) once a drag has started, so this listens globally rather
       // than on individual cells.
-      window.addEventListener("pointerup", controller.handlePointerUp);
+      window.addEventListener("pointerup", gridController.handlePointerUp);
       removePointerUpListener = () =>
-        window.removeEventListener("pointerup", controller.handlePointerUp);
+        window.removeEventListener("pointerup", gridController.handlePointerUp);
 
       unsubscribeWorldState = onWorldState((state) => {
-        syncVisitorGraphics(cameraContainer, visitorGraphics, state.visitors, height);
+        syncVisitorGraphics(
+          cameraContainer,
+          visitorGraphics,
+          state.visitors,
+          height,
+        );
       });
     });
 
