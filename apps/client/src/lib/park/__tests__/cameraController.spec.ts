@@ -96,7 +96,7 @@ describe("createCameraController", () => {
     });
 
     it("clamps zoom to MIN_ZOOM instead of scaling below it", () => {
-      const cameraContainer = createFakeContainer(0.51, 0, 0);
+      const cameraContainer = createFakeContainer(0.91, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
         toolRef: toolRefWithMode("selection"),
@@ -106,7 +106,7 @@ describe("createCameraController", () => {
 
       handleWheel(wheelEvent(100_000, 0, 0));
 
-      expect(cameraContainer.scale.x).toBe(0.5);
+      expect(cameraContainer.scale.x).toBe(0.9);
     });
 
     it("keeps the world point under the cursor fixed when zooming from the origin", () => {

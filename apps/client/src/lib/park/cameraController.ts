@@ -54,7 +54,7 @@ export function createCameraController({
 
   function handleWheel(event: WheelEvent) {
     const ZOOM_SPEED = 0.001;
-    const MIN_ZOOM = 0.5;
+    const MIN_ZOOM = 0.9;
     const MAX_ZOOM = 3;
 
     const amount = event.deltaY;
