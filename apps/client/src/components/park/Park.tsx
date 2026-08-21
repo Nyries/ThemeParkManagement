@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Application, Container, Graphics, Text } from "pixi.js";
 import {
+  canvasHeight,
+  canvasWidth,
   CELL_SIZE,
   getCellColor,
   toScreenX,
@@ -119,11 +121,16 @@ export function Park({ tool, onToolChange }: ParkProps) {
       const viewportHeight = containerRef.current?.clientHeight
         ? containerRef.current?.clientHeight
         : 800;
+      const worldWidth = canvasWidth(width)
+      const worldHeight = canvasHeight(height)
 
       const cameraController = createCameraController({
         cameraContainer,
+        toolRef,
         viewportWidth,
         viewportHeight,
+        worldWidth,
+        worldHeight,
       });
       await app.init({
         width: viewportWidth,
@@ -191,6 +198,18 @@ export function Park({ tool, onToolChange }: ParkProps) {
       containerEl?.addEventListener("wheel", cameraController.handleWheel, {
         passive: false,
       });
+      containerEl?.addEventListener(
+        "pointerdown",
+        cameraController.handlePointerDown,
+      );
+      window.addEventListener(
+        "pointermove",
+        cameraController.handlePointerMove,
+      );
+      window.addEventListener(
+        "pointerup",
+        cameraController.handlePointerUp,
+      );
       containerEl?.addEventListener(
         "pointerleave",
         gridController.handlePointerLeave,
