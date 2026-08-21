@@ -89,7 +89,7 @@ const emptyMap: MapResponse = {
   building: [],
 };
 
-const NO_TOOL: ToolState = { mode: null };
+const NO_TOOL: ToolState = { mode: "selection" };
 
 describe("Park", () => {
   beforeEach(() => {
@@ -727,7 +727,7 @@ describe("Park", () => {
     const onToolChange = vi.fn();
 
     const { container } = render(
-      <Park tool={{ mode: null }} onToolChange={onToolChange} />,
+      <Park tool={{ mode: "selection" }} onToolChange={onToolChange} />,
     );
 
     const target = container.querySelector('[tabindex="0"]')!;
@@ -741,7 +741,7 @@ describe("Park", () => {
     const onToolChange = vi.fn();
 
     const { container } = render(
-      <Park tool={{ mode: null }} onToolChange={onToolChange} />,
+      <Park tool={{ mode: "selection" }} onToolChange={onToolChange} />,
     );
 
     const target = container.querySelector('[tabindex="0"]')!;
@@ -763,7 +763,7 @@ describe("Park", () => {
     const target = container.querySelector('[tabindex="0"]')!;
     fireEvent.keyDown(target, { code: "Digit4" });
 
-    expect(onToolChange).toHaveBeenCalledWith({ mode: null });
+    expect(onToolChange).toHaveBeenCalledWith({ mode: "selection" });
   });
 
   it("rotates the building ghost with R, and in reverse with Shift+R", () => {
@@ -856,14 +856,14 @@ describe("Park", () => {
     const target = container.querySelector('[tabindex="0"]')!;
     fireEvent.keyDown(target, { code: "Escape" });
 
-    expect(onToolChange).toHaveBeenCalledWith({ mode: null });
+    expect(onToolChange).toHaveBeenCalledWith({ mode: "selection" });
   });
 
   it("prevents the browser default action only for its shortcut keys", () => {
     mockOnMap.mockReturnValue(new Promise(() => {}));
 
     const { container } = render(
-      <Park tool={{ mode: null }} onToolChange={vi.fn()} />,
+      <Park tool={{ mode: "selection" }} onToolChange={vi.fn()} />,
     );
 
     const target = container.querySelector('[tabindex="0"]')!;
@@ -878,7 +878,7 @@ describe("Park", () => {
     mockOnMap.mockReturnValue(new Promise(() => {}));
 
     const { container } = render(
-      <Park tool={{ mode: null }} onToolChange={vi.fn()} />,
+      <Park tool={{ mode: "selection" }} onToolChange={vi.fn()} />,
     );
 
     const target = container.querySelector<HTMLElement>('[tabindex="0"]')!;

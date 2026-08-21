@@ -9,7 +9,7 @@ describe("SecondaryToolbar", () => {
 
   it("renders nothing when no tool is active", () => {
     const { container } = render(
-      <SecondaryToolbar mode={null} onRotate={vi.fn()} />,
+      <SecondaryToolbar mode={"selection"} onRotate={vi.fn()} />,
     );
 
     expect(container).toBeEmptyDOMElement();

@@ -79,7 +79,7 @@ export function createCameraController({
   }
 
   function handlePointerDown(event: PointerEvent) {
-    if (toolRef.current.mode !== null) return;
+    if (toolRef.current.mode !== "selection") return;
     isPanning = true;
     lastPointer = { x: event.clientX, y: event.clientY };
   }

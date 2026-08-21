@@ -57,7 +57,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -71,7 +71,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -85,7 +85,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(2.99, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -99,7 +99,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(0.51, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -113,7 +113,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -130,7 +130,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(2, -100, -50);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -157,7 +157,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handleWheel } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         viewportWidth: 800,
         viewportHeight: 600,
         worldWidth: 810,
@@ -179,7 +179,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, -2000, -2000);
       const { handlePointerDown, handlePointerMove } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -211,7 +211,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, -2000, -2000);
       const { handlePointerDown, handlePointerMove } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -229,7 +229,7 @@ describe("createCameraController", () => {
       const { handlePointerDown, handlePointerMove, handlePointerUp } =
         createCameraController({
           cameraContainer,
-          toolRef: toolRefWithMode(null),
+          toolRef: toolRefWithMode("selection"),
           ...VIEWPORT,
           ...LARGE_WORLD,
         });
@@ -247,7 +247,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handlePointerMove } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         ...LARGE_WORLD,
       });
@@ -262,7 +262,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handlePointerDown, handlePointerMove } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         ...VIEWPORT,
         worldWidth: 5000,
         worldHeight: 5000,
@@ -284,7 +284,7 @@ describe("createCameraController", () => {
       const cameraContainer = createFakeContainer(1, 0, 0);
       const { handlePointerDown, handlePointerMove } = createCameraController({
         cameraContainer,
-        toolRef: toolRefWithMode(null),
+        toolRef: toolRefWithMode("selection"),
         viewportWidth: 800,
         viewportHeight: 600,
         worldWidth: 200,
