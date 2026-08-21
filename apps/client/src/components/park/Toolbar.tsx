@@ -1,4 +1,4 @@
-import { Building2, Eraser, Mountain, Route } from "lucide-react";
+import { Building2, Eraser, Mountain, Route, MousePointer2 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Tooltip,
@@ -19,6 +19,7 @@ const TOOLS: {
   shortcut: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
+  { mode: "selection", label: "Selection", shortcut: "Esc", icon: MousePointer2},
   { mode: "terrain", label: "Terrain", shortcut: "1", icon: Mountain },
   { mode: "infrastructure", label: "Chemin", shortcut: "2", icon: Route },
   { mode: "building", label: "Bâtiment", shortcut: "3", icon: Building2 },
@@ -41,7 +42,7 @@ export function Toolbar({ mode, onModeChange }: ToolbarProps) {
                   size="icon-sm"
                   aria-pressed={active}
                   aria-label={tool.label}
-                  onClick={() => onModeChange(active ? null : tool.mode)}
+                  onClick={() => onModeChange(active ? "selection" : tool.mode)}
                 >
                   <Icon className="size-4" />
                 </Button>

@@ -53,26 +53,26 @@ export function useParkKeyboardShortcuts({
         case "Digit1":
           onToolChange({
             ...currentTool,
-            mode: currentTool.mode === "terrain" ? null : "terrain",
+            mode: currentTool.mode === "terrain" ? "selection" : "terrain",
           });
           break;
         case "Digit2":
           onToolChange({
             ...currentTool,
             mode:
-              currentTool.mode === "infrastructure" ? null : "infrastructure",
+              currentTool.mode === "infrastructure" ? "selection" : "infrastructure",
           });
           break;
         case "Digit3":
           onToolChange({
             ...currentTool,
-            mode: currentTool.mode === "building" ? null : "building",
+            mode: currentTool.mode === "building" ? "selection" : "building",
           });
           break;
         case "Digit4":
           onToolChange({
             ...currentTool,
-            mode: currentTool.mode === "remove" ? null : "remove",
+            mode: currentTool.mode === "remove" ? "selection" : "remove",
           });
           break;
         case "KeyR":
@@ -84,7 +84,7 @@ export function useParkKeyboardShortcuts({
           }
           break;
         case "Escape":
-          onToolChange({ ...currentTool, mode: null });
+          onToolChange({ ...currentTool, mode: "selection" });
           break;
         default:
           break;
