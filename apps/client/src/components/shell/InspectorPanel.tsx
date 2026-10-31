@@ -38,9 +38,9 @@ function showsJournal(tool: ToolState): boolean {
 }
 
 export function InspectorPanel({
-  selection,
   tool,
   onToolChange,
+  selection,
 }: InspectorPanelProps) {
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto border-l border-border p-4">

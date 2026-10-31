@@ -29,7 +29,7 @@ const PRESS_DURATION_MS = 150;
 // plus the :active translate — neither pseudo-class fires for a
 // programmatic trigger, so this is applied manually while "pressed".
 const PRESSED_VISUAL_CLASSES =
-  "bg-muted text-foreground dark:bg-muted/50 translate-y-px";
+  "bg-muted text-foreground dark:bg-muted/50 translate-y-px justify-center";
 
 // Contextual controls that only make sense for the currently active tool —
 // kept out of the main Toolbar so it stays a fixed, predictable set of
@@ -78,7 +78,7 @@ export const SecondaryToolbar = forwardRef<
               variant="ghost"
               size="icon-sm"
               aria-label="Rotation (R)"
-              className={pressed === "cw" ? PRESSED_VISUAL_CLASSES : undefined}
+              className={pressed === "cw" ? PRESSED_VISUAL_CLASSES : "justify-center"} 
               onClick={() => onRotate(false)}
             >
               <RotateCw className="size-4" />
@@ -93,7 +93,7 @@ export const SecondaryToolbar = forwardRef<
               variant="ghost"
               size="icon-sm"
               aria-label="Rotation inversée (Maj+R)"
-              className={pressed === "ccw" ? PRESSED_VISUAL_CLASSES : undefined}
+              className={pressed === "ccw" ? PRESSED_VISUAL_CLASSES : "justify-center"}
               onClick={() => onRotate(true)}
             >
               <RotateCcw className="size-4" />

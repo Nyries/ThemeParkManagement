@@ -1,4 +1,4 @@
-import { Globe, LayoutGrid, Store, Users, Wallet } from "lucide-react";
+import { Globe, LayoutGrid, Store, Users, Wallet, Map } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -6,29 +6,40 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { Button } from "../ui/button";
 
 interface NavEntry {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
+  path: string;
 }
 
-const NAV_ENTRIES: NavEntry[] = [
-  { label: "Parc", icon: LayoutGrid, active: true },
-  { label: "Personnel", icon: Users, active: false },
-  { label: "Finances", icon: Wallet, active: false },
-  { label: "Marché", icon: Store, active: false },
-  { label: "Monde", icon: Globe, active: false },
+const MAIN_NAV_ENTRIES: NavEntry[] = [
+  { label: "Parc", icon: LayoutGrid, active: true, path: "" },
+  { label: "Personnel", icon: Users, active: false, path: "" },
+  { label: "Finances", icon: Wallet, active: false, path: "" },
+  { label: "Marché", icon: Store, active: false, path: "" },
+  { label: "Monde", icon: Globe, active: false, path: "" },
+];
+
+const BOTTOM_NAV_ENTRIES: NavEntry[] = [
+  { label: "Éditeur de Carte", icon: Map, active: true, path: "/editor" },
 ];
 
 export function LeftNav() {
   return (
     <TooltipProvider>
       <nav className="flex h-full w-60 shrink-0 flex-col gap-1 bg-sidebar p-3 text-sidebar-foreground">
-        {NAV_ENTRIES.map((entry) => (
+        {MAIN_NAV_ENTRIES.map((entry) => (
           <NavItem key={entry.label} entry={entry} />
         ))}
-        <span className="mt-auto px-3 text-xs text-sidebar-foreground/40">
+        <div className="mt-auto flex flex-col gap-1 pt-4">
+          {BOTTOM_NAV_ENTRIES.map((entry) => (
+            <NavItem key={entry.label} entry={entry} />
+          ))}
+        </div>
+        <span className="px-3 pt-1 text-xs text-sidebar-foreground/40">
           v{__APP_VERSION__}
         </span>
       </nav>
@@ -38,22 +49,15 @@ export function LeftNav() {
 
 function NavItem({ entry }: { entry: NavEntry }) {
   const Icon = entry.icon;
-
   const button = (
-    <button
-      type="button"
+    <Button
+      variant={entry.active ? "secondary" : "ghost"}
       disabled={!entry.active}
       aria-disabled={!entry.active}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-        entry.active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "cursor-not-allowed text-sidebar-foreground/50",
-      )}
     >
       <Icon className="size-4 shrink-0" />
       {entry.label}
-    </button>
+    </Button>
   );
 
   if (entry.active) {
@@ -62,7 +66,11 @@ function NavItem({ entry }: { entry: NavEntry }) {
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        <span className="inline-block w-full cursor-not-allowed">
+          {button}
+        </span>
+      </TooltipTrigger>
       <TooltipContent side="right">Bientôt disponible</TooltipContent>
     </Tooltip>
   );

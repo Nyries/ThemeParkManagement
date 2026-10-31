@@ -42,6 +42,7 @@ export function Toolbar({ mode, onModeChange }: ToolbarProps) {
                   aria-pressed={active}
                   aria-label={tool.label}
                   onClick={() => onModeChange(active ? null : tool.mode)}
+                  className="justify-center"
                 >
                   <Icon className="size-4" />
                 </Button>
