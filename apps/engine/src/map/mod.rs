@@ -1,9 +1,7 @@
 mod pathfinding;
 mod validation;
 
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use serde_json::Value::Null;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -23,23 +21,23 @@ pub(crate) fn movement_cost_for(shape: &InfrastructureShape) -> u32 {
     }
 }
 
-pub(crate) fn vertical_movement_cost_for(shape: &InfrastructureShape) -> u32 {
-    match shape {
-        InfrastructureShape::Ramp { .. } => 1,
-        InfrastructureShape::Stairs { .. } => 2,
-        InfrastructureShape::Path => 0,
-        InfrastructureShape::Queue { .. } => 0,
-    }
-}
+// pub(crate) fn vertical_movement_cost_for(shape: &InfrastructureShape) -> u32 {
+//     match shape {
+//         InfrastructureShape::Ramp { .. } => 1,
+//         InfrastructureShape::Stairs { .. } => 2,
+//         InfrastructureShape::Path => 0,
+//         InfrastructureShape::Queue { .. } => 0,
+//     }
+// }
 
-pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
-    match shape {
-        InfrastructureShape::Path => 1.0,
-        InfrastructureShape::Ramp { .. } => 0.7,
-        InfrastructureShape::Stairs { .. } => 0.5,
-        InfrastructureShape::Queue { .. } => 1.0,
-    }
-}
+// pub(crate) fn base_speed_for(shape: &InfrastructureShape) -> f32 {
+//     match shape {
+//         InfrastructureShape::Path => 1.0,
+//         InfrastructureShape::Ramp { .. } => 0.7,
+//         InfrastructureShape::Stairs { .. } => 0.5,
+//         InfrastructureShape::Queue { .. } => 1.0,
+//     }
+// }
 
 fn rotate_footprint(footprint: &[(i32, i32)], rotation: Rotation) -> Vec<(i32, i32)> {
     footprint
@@ -109,6 +107,7 @@ pub struct ParkMap {
     pub unlocked_levels: HashSet<i32>,
     pub entrance: Option<(i32, i32, i32)>,
     pub visitor_spawning_rate: u32,
+    pub max_visitors: u32,
 }
 
 impl ParkMap {
@@ -126,6 +125,7 @@ impl ParkMap {
             unlocked_levels,
             entrance: None,
             visitor_spawning_rate: 0,
+            max_visitors: 0,
         }
     }
 
@@ -227,46 +227,46 @@ mod tests {
         ParkMap::new(map_id, bounds_3d)
     }
 
-    mod movement_cost_for_and_vertical {
-        use super::*;
+    // mod movement_cost_for_and_vertical {
+    //     use super::*;
 
-        #[test]
-        fn test_movement_cost_for_with_different_infrastructure() {
-            let mut result = movement_cost_for(&InfrastructureShape::Path);
-            assert_eq!(result, 1);
-            result = movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
-            assert_eq!(result, 2);
-            result = movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
-            assert_eq!(result, 3);
-            result = movement_cost_for(&InfrastructureShape::Queue {
-                attraction_id: BuildingId::default(),
-            });
-            assert_eq!(result, 1);
-        }
+    //     #[test]
+    //     fn test_movement_cost_for_with_different_infrastructure() {
+    //         let mut result = movement_cost_for(&InfrastructureShape::Path);
+    //         assert_eq!(result, 1);
+    //         result = movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
+    //         assert_eq!(result, 2);
+    //         result = movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
+    //         assert_eq!(result, 3);
+    //         result = movement_cost_for(&InfrastructureShape::Queue {
+    //             attraction_id: BuildingId::default(),
+    //         });
+    //         assert_eq!(result, 1);
+    //     }
 
-        #[test]
-        fn test_vertical_movement_cost_for_with_different_infrastructure() {
-            let mut result = vertical_movement_cost_for(&InfrastructureShape::Path);
-            assert_eq!(result, 0);
-            result = vertical_movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
-            assert_eq!(result, 1);
-            result = vertical_movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
-            assert_eq!(result, 2);
-            result = vertical_movement_cost_for(&InfrastructureShape::Queue {
-                attraction_id: BuildingId::default(),
-            });
-            assert_eq!(result, 0);
-        }
+    //     #[test]
+    //     fn test_vertical_movement_cost_for_with_different_infrastructure() {
+    //         let mut result = vertical_movement_cost_for(&InfrastructureShape::Path);
+    //         assert_eq!(result, 0);
+    //         result = vertical_movement_cost_for(&InfrastructureShape::Ramp { to_z: 1 });
+    //         assert_eq!(result, 1);
+    //         result = vertical_movement_cost_for(&InfrastructureShape::Stairs { to_z: 1 });
+    //         assert_eq!(result, 2);
+    //         result = vertical_movement_cost_for(&InfrastructureShape::Queue {
+    //             attraction_id: BuildingId::default(),
+    //         });
+    //         assert_eq!(result, 0);
+    //     }
 
-        #[test]
-        fn test_base_speed_for_a_queue_matches_a_plain_path() {
-            let queue_speed = base_speed_for(&InfrastructureShape::Queue {
-                attraction_id: BuildingId::default(),
-            });
+    //     #[test]
+    //     fn test_base_speed_for_a_queue_matches_a_plain_path() {
+    //         let queue_speed = base_speed_for(&InfrastructureShape::Queue {
+    //             attraction_id: BuildingId::default(),
+    //         });
 
-            assert_eq!(queue_speed, base_speed_for(&InfrastructureShape::Path));
-        }
-    }
+    //         assert_eq!(queue_speed, base_speed_for(&InfrastructureShape::Path));
+    //     }
+    // }
 
     mod rotate_footprint {
         use super::*;

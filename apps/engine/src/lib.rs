@@ -6,6 +6,7 @@ pub mod map_template;
 pub mod service;
 pub mod visitor;
 
+#[allow(clippy::result_large_err)]
 pub mod simulation {
     tonic::include_proto!("simulation");
 }

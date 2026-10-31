@@ -28,9 +28,9 @@ pub(super) fn normalize(v: (f32, f32, f32)) -> (f32, f32, f32) {
     (v.0 / len, v.1 / len, v.2 / len)
 }
 
-fn dot(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
-    a.0 * b.0 + a.1 * b.1 + a.2 * b.2
-}
+// fn dot(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
+//     a.0 * b.0 + a.1 * b.1 + a.2 * b.2
+// }
 
 pub(super) fn lerp_direction(
     current: (f32, f32, f32),

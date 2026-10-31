@@ -27,6 +27,7 @@ fn load_default_map() -> Result<ParkMap, MapLoadError> {
     template.into_park_map()
 }
 
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting the simulation engine! (v{})", env!("APP_VERSION"));

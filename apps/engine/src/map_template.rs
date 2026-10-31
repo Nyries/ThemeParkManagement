@@ -97,6 +97,9 @@ fn parse_infrastructure_kind(
 fn default_spawning_rate() -> u32 {
     20
 }
+fn default_max_visitors() -> u32 {
+    50
+}
 
 #[derive(Deserialize)]
 pub struct MapTemplate {
@@ -111,6 +114,8 @@ pub struct MapTemplate {
     pub entrance: Coord,
     #[serde(default = "default_spawning_rate")]
     pub visitor_spawning_rate: u32,
+    #[serde(default = "default_max_visitors")]
+    pub max_visitors: u32,
 }
 
 impl MapTemplate {
@@ -233,6 +238,7 @@ impl MapTemplate {
         }
         park_map.entrance = Some((self.entrance.x, self.entrance.y, self.entrance.z));
         park_map.visitor_spawning_rate = self.visitor_spawning_rate;
+        park_map.max_visitors = self.max_visitors;
         Ok(park_map)
     }
 }
@@ -388,6 +394,7 @@ mod tests {
                 parcels: vec![],
                 entrance: Coord { x: 0, y: 0, z: 0 },
                 visitor_spawning_rate: 100,
+                max_visitors: 100,
             }
         }
 

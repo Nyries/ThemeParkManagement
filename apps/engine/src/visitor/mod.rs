@@ -75,27 +75,27 @@ impl Visitor {
 mod tests {
     use super::*;
 
-    fn assert_close(actual: (f32, f32, f32), expected: (f32, f32, f32)) {
-        const EPSILON: f32 = 1e-5;
-        assert!(
-            (actual.0 - expected.0).abs() < EPSILON,
-            "x: {} != {}",
-            actual.0,
-            expected.0
-        );
-        assert!(
-            (actual.1 - expected.1).abs() < EPSILON,
-            "y: {} != {}",
-            actual.1,
-            expected.1
-        );
-        assert!(
-            (actual.2 - expected.2).abs() < EPSILON,
-            "z: {} != {}",
-            actual.2,
-            expected.2
-        );
-    }
+    // fn assert_close(actual: (f32, f32, f32), expected: (f32, f32, f32)) {
+    //     const EPSILON: f32 = 1e-5;
+    //     assert!(
+    //         (actual.0 - expected.0).abs() < EPSILON,
+    //         "x: {} != {}",
+    //         actual.0,
+    //         expected.0
+    //     );
+    //     assert!(
+    //         (actual.1 - expected.1).abs() < EPSILON,
+    //         "y: {} != {}",
+    //         actual.1,
+    //         expected.1
+    //     );
+    //     assert!(
+    //         (actual.2 - expected.2).abs() < EPSILON,
+    //         "z: {} != {}",
+    //         actual.2,
+    //         expected.2
+    //     );
+    // }
 
     mod has_expired {
         use super::*;

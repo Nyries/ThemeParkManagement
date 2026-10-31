@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    balance::{SPAWN_INTERVAL_TICKS, VISITOR_RADIUS},
     building_template::{BuildingCatalog, CatalogSource},
     map::{Bounds3d, ParkMap},
     visitor::{Visitor, VisitorId, movement::pick_random_walking_destination},
@@ -58,17 +57,17 @@ impl GameWorld {
             return;
         }
         self.dirty_chunks.clear();
-        let positions: HashMap<VisitorId, (f32, f32, f32)> = self
-            .visitors
-            .iter()
-            .map(|v| (v.id.clone(), v.position))
-            .collect();
-        let exit = self.park_map.entrance;
+        // let positions: HashMap<VisitorId, (f32, f32, f32)> = self
+        //     .visitors
+        //     .iter()
+        //     .map(|v| (v.id.clone(), v.position))
+        //     .collect();
+        // let exit = self.park_map.entrance;
 
         for v in self.visitors.iter_mut() {
             v.ticks_since_spawn += 1;
-            let old_cell = cell_of(v.position);
-            let position_before_advance = v.position;
+            // let old_cell = cell_of(v.position);
+            // let position_before_advance = v.position;
 
             let speed = 1.5;
             v.advance(speed, dt);
@@ -86,7 +85,7 @@ impl GameWorld {
         self.metrics.visitors_in_park = self.visitors.len();
         self.tick_count += 1;
 
-        if self.visitors.len() < 1
+        if self.visitors.len() < self.park_map.max_visitors as usize
             && self
                 .tick_count
                 .is_multiple_of(self.park_map.visitor_spawning_rate as u64)
@@ -133,20 +132,20 @@ fn cell_of(position: (f32, f32, f32)) -> (i32, i32, i32) {
     )
 }
 
-fn distance_moved(before: (f32, f32, f32), after: (f32, f32, f32)) -> f32 {
-    let dx = after.0 - before.0;
-    let dy = after.1 - before.1;
-    let dz = after.2 - before.2;
-    (dx * dx + dy * dy + dz * dz).sqrt()
-}
+// fn distance_moved(before: (f32, f32, f32), after: (f32, f32, f32)) -> f32 {
+//     let dx = after.0 - before.0;
+//     let dy = after.1 - before.1;
+//     let dz = after.2 - before.2;
+//     (dx * dx + dy * dy + dz * dz).sqrt()
+// }
 
-fn visitor_diameter() -> f32 {
-    2.0 * VISITOR_RADIUS
-}
+// fn visitor_diameter() -> f32 {
+//     2.0 * VISITOR_RADIUS
+// }
 
-fn add_vec(a: (f32, f32, f32), b: (f32, f32, f32)) -> (f32, f32, f32) {
-    (a.0 + b.0, a.1 + b.1, a.2 + b.2)
-}
+// fn add_vec(a: (f32, f32, f32), b: (f32, f32, f32)) -> (f32, f32, f32) {
+//     (a.0 + b.0, a.1 + b.1, a.2 + b.2)
+// }
 
 #[cfg(test)]
 mod tests {
@@ -217,7 +216,8 @@ mod tests {
         fn test_tick_spawns_a_visitor_every_spawn_interval() {
             let mut world = GameWorld::new();
             let spawn_interval = 10;
-            world.park_map.visitor_spawning_rate = 10;
+            world.park_map.max_visitors = 10;
+            world.park_map.visitor_spawning_rate = spawn_interval;
             world.park_map.entrance = Some((0, 0, 0));
             world
                 .park_map
@@ -231,7 +231,7 @@ mod tests {
                 "no spawn before the interval is reached"
             );
 
-            world.tick(0.01); // atteint exactement SPAWN_INTERVAL_TICKS
+            world.tick(0.01);
             assert_eq!(world.visitors.len(), 1);
         }
     }
