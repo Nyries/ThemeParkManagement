@@ -85,9 +85,7 @@ impl SimulationService for SimulationEngineService {
                                     .find(|b| b.building_id == attraction_building_id)
                                     .cloned()
                             })
-                            .map(|attraction_id| InfrastructureShape::Queue {
-                               attraction_id,
-                            })
+                            .map(|attraction_id| InfrastructureShape::Queue { attraction_id })
                             .ok_or(ErrorCode::ErrorInvalidTemplate),
                         _ => Err(ErrorCode::ErrorEmpty),
                     };
