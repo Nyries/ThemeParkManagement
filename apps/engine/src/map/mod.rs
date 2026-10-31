@@ -1,7 +1,9 @@
+mod pathfinding;
 mod validation;
 
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use serde_json::Value::Null;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -106,6 +108,7 @@ pub struct ParkMap {
     pub parcels: Vec<Parcel>,
     pub unlocked_levels: HashSet<i32>,
     pub entrance: Option<(i32, i32, i32)>,
+    pub visitor_spawning_rate: u32,
 }
 
 impl ParkMap {
@@ -122,6 +125,7 @@ impl ParkMap {
             parcels: Vec::new(),
             unlocked_levels,
             entrance: None,
+            visitor_spawning_rate: 0,
         }
     }
 
@@ -149,26 +153,6 @@ impl ParkMap {
 
     pub fn get_infrastructure(&self, x: i32, y: i32, z: i32) -> Option<&InfrastructureShape> {
         self.infrastructure.get(&(x, y, z))
-    }
-
-    /// Picks a random walkable cell reachable from `exclude`, or `None` if none is —
-    /// existing in `self.infrastructure` isn't enough, it must have an actual path.
-    pub fn random_walkable_cell(&self, exclude: (i32, i32, i32)) -> Option<(i32, i32, i32)> {
-        // Queue cells are never a plain wander target — reaching one only makes sense
-        // via joining that queue (TPM-156), not by strolling into the middle of a line.
-        let mut candidates: Vec<(i32, i32, i32)> = self
-            .infrastructure
-            .iter()
-            .filter(|&(&cell, shape)| {
-                cell != exclude && !matches!(shape, InfrastructureShape::Queue { .. })
-            })
-            .map(|(&cell, _)| cell)
-            .collect();
-        candidates.shuffle(&mut rand::thread_rng());
-
-        candidates
-            .into_iter()
-            .find(|&candidate| self.find_path(exclude, candidate).is_some())
     }
 
     pub fn set_building(&mut self, x: i32, y: i32, z: i32, building_id: BuildingId) {
@@ -352,76 +336,6 @@ mod tests {
 
             park_map.remove_infrasture(0, 0, 0);
             assert!(park_map.get_infrastructure(0, 0, 0).is_none())
-        }
-    }
-
-    mod random_walkable_cell {
-        use super::*;
-
-        // build_test_map()'s bounds are a single (0,0,0) cell — too narrow to place a
-        // second, actually-reachable candidate. This module needs room for a real path.
-        fn build_reachable_test_map() -> ParkMap {
-            ParkMap::new("map-1".into(), Bounds3d::new(0, 5, 0, 5, 0, 0))
-        }
-
-        #[test]
-        fn test_returns_a_different_reachable_cell_when_several_are_walkable() {
-            let mut map = build_reachable_test_map();
-            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            map.set_infrastructure(1, 0, 0, InfrastructureShape::Path);
-
-            let result = map.random_walkable_cell((0, 0, 0));
-
-            assert_eq!(result, Some((1, 0, 0)));
-        }
-
-        #[test]
-        fn test_returns_none_when_it_is_the_only_walkable_cell() {
-            let mut map = build_reachable_test_map();
-            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-
-            let result = map.random_walkable_cell((0, 0, 0));
-
-            assert_eq!(result, None);
-        }
-
-        #[test]
-        fn test_returns_none_when_no_cell_is_walkable() {
-            let map = build_test_map();
-
-            let result = map.random_walkable_cell((0, 0, 0));
-
-            assert_eq!(result, None);
-        }
-
-        #[test]
-        fn test_ignores_a_candidate_that_exists_but_is_unreachable() {
-            let mut map = build_reachable_test_map();
-            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            // (5,5,0) is never connected to (0,0,0): no infrastructure links them.
-            map.set_infrastructure(5, 5, 0, InfrastructureShape::Path);
-
-            let result = map.random_walkable_cell((0, 0, 0));
-
-            assert_eq!(result, None);
-        }
-
-        #[test]
-        fn test_never_picks_a_queue_cell_as_a_plain_wander_target() {
-            let mut map = build_reachable_test_map();
-            map.set_infrastructure(0, 0, 0, InfrastructureShape::Path);
-            map.set_infrastructure(
-                1,
-                0,
-                0,
-                InfrastructureShape::Queue {
-                    attraction_id: BuildingId::default(),
-                },
-            );
-
-            let result = map.random_walkable_cell((0, 0, 0));
-
-            assert_eq!(result, None); // the only other cell is a queue cell, must be excluded
         }
     }
 

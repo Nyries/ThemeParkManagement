@@ -59,5 +59,6 @@
       "price": 0
     }
   ],
-  "entrance": { "x": 1, "y": 1, "z": 0 }
+  "entrance": { "x": 1, "y": 1, "z": 0 },
+  "visitor_spawning_rate" : 100
 }
