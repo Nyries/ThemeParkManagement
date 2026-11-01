@@ -5,7 +5,7 @@ import {
   sendPlaceInfrastructure,
   sendRemoveBuilding,
   sendRemoveInfrastructure,
-} from "./engineClient";
+} from "../engine/engineClient";
 
 export async function dispatchCommand(
   request: CommandRequest,

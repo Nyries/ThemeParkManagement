@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { PrismaClient } from "../generated/prisma/client";
 
-export function createMapDraftsRouter(prisma: PrismaClient) {
+export function createMapDraftRouter(prisma: PrismaClient) {
   const router = Router();
 
-  router.post("/drafts", async (req, res) => {
+  router.post("/new", async (req, res) => {
     try {
       const { userId, mapData } = req.body;
 

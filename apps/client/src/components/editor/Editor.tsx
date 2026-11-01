@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import { mapService } from "@/services/mapDraftService";
 
 interface EditorProps {
   tool: ToolState;
@@ -125,16 +126,22 @@ function CreatingMapDialog() {
     }));
   };
 
-  const handleSubmit = (e: React.SubmitEvent) => {
-    e.preventDefault();
-    console.log("Valeurs du formulaire: ", formData);
-  };
-
   const handleSelectChange = (name: string, value: string) => {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+  };
+
+  const handleSubmit = async (e: React.SubmitEvent) => {
+    e.preventDefault();
+    console.log("Valeurs du formulaire: ", formData);
+    try {
+      const result = await mapService.saveDraft(formData);
+      console.log(`Draft submitted with success`);
+    } catch (error) {
+      console.error(`Failed to submit new map: ${error}`);
+    }
   };
 
   return (

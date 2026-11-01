@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { PrismaClient } from "../generated/prisma/client";
 import { createParkRouter } from "./park.routes";
 import { createCompanyRouter } from "./company.routes";
-import { createMapDraftsRouter } from "./map-drafts.routes";
+import { createMapDraftRouter } from "./map-draft.routes";
 
 export function registerRoutes(app: Express, prisma: PrismaClient) {
   app.get("/health", async (req, res) => {
@@ -18,5 +18,5 @@ export function registerRoutes(app: Express, prisma: PrismaClient) {
 
   app.use("/park", createParkRouter(prisma));
   app.use("/company", createCompanyRouter(prisma));
-  app.use("/map-drafts", createMapDraftsRouter(prisma));
+  app.use("/map-draft", createMapDraftRouter(prisma));
 }
