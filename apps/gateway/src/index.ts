@@ -8,7 +8,7 @@ import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pkg from "pg";
 import { registerCommandHandlers } from "./socket";
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes/index.routes";
 
 const { Pool } = pkg;
 

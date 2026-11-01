@@ -1,7 +1,7 @@
 import { CommandRequest, CommandResponse } from "@app/shared-types";
 import { Server } from "socket.io";
 import { dispatchCommand } from "./services/commandHandler";
-import { getMap, subscribeToEngineStream } from "./services/engineClient";
+import { getMap, subscribeToEngineStream } from "./engine/engineClient";
 import { shouldRelay } from "./services/relayThrottle";
 
 const PARK_ID = "default";
