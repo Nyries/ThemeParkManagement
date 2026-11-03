@@ -2,9 +2,7 @@ import type { ToolState } from "@/types/park/tool";
 import { InspectorPanel } from "../shell/InspectorPanel";
 import { Button } from "../ui/button";
 import {
-  ChevronDown,
   CircleChevronDown,
-  CircleChevronUp,
   CirclePlus,
   Folder,
 } from "lucide-react";
