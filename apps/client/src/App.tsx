@@ -6,7 +6,7 @@ import { Toaster } from "./components/ui/sonner";
 import type { ToolState } from "./types/park/tool";
 
 function App() {
-  const [tool, setTool] = useState<ToolState>({mode: null});
+  const [tool, setTool] = useState<ToolState>({mode: "selection"});
 
   return (
     <>

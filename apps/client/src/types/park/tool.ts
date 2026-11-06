@@ -1,7 +1,7 @@
 import { Rotation } from "@app/shared-types";
 import type { TerrainMaterial } from "../../rendering/grid";
 
-export type ToolMode = "terrain" | "infrastructure" | "building" | "remove" | null;
+export type ToolMode = "selection" | "terrain" | "infrastructure" | "building" | "remove";
 export interface ToolState {
     mode: ToolMode;
     rotation?: Rotation;

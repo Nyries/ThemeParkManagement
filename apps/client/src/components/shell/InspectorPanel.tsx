@@ -34,7 +34,7 @@ interface InspectorPanelProps {
 // tool-specific content — the journal (like the selection info) only makes
 // sense alongside remove or no tool active, never crowding those out.
 function showsJournal(tool: ToolState): boolean {
-  return tool.mode === null || tool.mode === "remove";
+  return tool.mode === "selection" || tool.mode === "remove";
 }
 
 export function InspectorPanel({

@@ -9,7 +9,7 @@ describe("Toolbar", () => {
   });
 
   it("renders the 4 tool buttons", () => {
-    render(<Toolbar mode={null} onModeChange={vi.fn()} />);
+    render(<Toolbar mode={"selection"} onModeChange={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Terrain" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Chemin" })).toBeInTheDocument();
@@ -34,7 +34,7 @@ describe("Toolbar", () => {
     const onModeChange = vi.fn();
     const user = userEvent.setup();
 
-    render(<Toolbar mode={null} onModeChange={onModeChange} />);
+    render(<Toolbar mode={"selection"} onModeChange={onModeChange} />);
     await user.click(screen.getByRole("button", { name: "Bâtiment" }));
 
     expect(onModeChange).toHaveBeenCalledWith("building");
@@ -47,6 +47,6 @@ describe("Toolbar", () => {
     render(<Toolbar mode="remove" onModeChange={onModeChange} />);
     await user.click(screen.getByRole("button", { name: "Retirer" }));
 
-    expect(onModeChange).toHaveBeenCalledWith(null);
+    expect(onModeChange).toHaveBeenCalledWith("selection");
   });
 });

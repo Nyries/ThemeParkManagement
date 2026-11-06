@@ -160,7 +160,7 @@ export function createGridController({
   }
 
   function updateCursors() {
-    const cursor = toolRef.current.mode ? "pointer" : "default";
+    const cursor = toolRef.current.mode !== "selection" ? "pointer" : "default";
     for (const row of cellGraphics) {
       for (const cell of row) {
         cell.cursor = cursor;
